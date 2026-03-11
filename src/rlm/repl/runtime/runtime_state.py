@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TypeAlias, Dict
 
-from rlm.rlm_ast import AtomicType
+from rlm.repl.expressions.expressions import AtomicType
 
 RuntimeValue: TypeAlias = (
     AtomicType | list["RuntimeValue"] | dict[str, "RuntimeValue"]

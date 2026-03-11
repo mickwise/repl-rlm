@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from rlm.rlm_ast import (
+from rlm.repl.expressions.expressions import (
     Literal,
     Ref,
     ObjectExpr,
@@ -46,7 +46,7 @@ from rlm.rlm_ast import (
     Expr,
     AtomicType,
 )
-from rlm.runtime_state import RuntimeState, RuntimeValue
+from rlm.repl.runtime.runtime_state import RuntimeState, RuntimeValue
 
 
 def _interpret_literal(literal: Literal) -> AtomicType:
