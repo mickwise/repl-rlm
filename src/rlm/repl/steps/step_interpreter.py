@@ -3,37 +3,44 @@ Purpose
 -------
 Interpret executable step nodes from the RLM DSL AST against the current
 runtime state. This module exists to provide the step-execution layer used by
-the runtime loop and to propagate return control flow through nested step
-structures.
+the runtime loop, to support spawned sub-program execution, and to propagate
+return control flow through nested step structures.
 
 Key behaviors
 -------------
-- Executes tool-call, conditional, foreach, return, LLM-call, and assignment
-  steps.
+- Executes tool-call, conditional, foreach, return, LLM-call, assignment,
+  spawn, and join steps, awaiting tool and LLM results only when the invoked
+  call returns an awaitable.
 - Resolves call arguments by evaluating their object-expression payloads.
-- Propagates return control flow through nested branch and loop execution.
-- Mutates runtime bindings for loop variables and assignment targets.
+- Launches spawned sub-programs in child runtime states and joins their task
+  handles back into normal step execution.
 
 Conventions
 -----------
-- `interpret_step` is the public entry point for single-step execution.
-- `interpret_step_tuple` is the public entry point for ordered step-sequence
+- `interpret_step` is the public async entry point for single-step
   execution.
+- `interpret_step_tuple` is the public async entry point for ordered
+  step-sequence execution.
 - Helper functions in this module are private and dispatch on concrete AST node
   classes.
 - This module assumes structural validation has already happened.
 - Tool and LLM call targets are resolved through registries stored on
-  `RuntimeState`.
+  `RuntimeState`, and their return values may be synchronous or awaitable.
+- Spawned sub-programs execute against forked child runtime states, while task
+  handles are tracked on the parent runtime state.
 
 Downstream usage
 ----------------
-The runtime loop should call `interpret_step_tuple` on a program's top-level
-steps, passing the current runtime state that already contains bindings,
-registered tools, and registered LLM functions.
+The runtime loop should await `interpret_step_tuple` on a program's
+top-level steps, passing the current runtime state that already contains
+bindings, registered tools, registered LLM functions, and any active spawned
+sub-program task handles.
 """
 from __future__ import annotations
 
-from typing import Tuple
+from inspect import isawaitable
+from typing import Tuple, Dict, List
+import asyncio
 
 from rlm.repl.expressions.expression_interpreter import interpret_expression
 from rlm.repl.steps.steps import (
@@ -43,21 +50,27 @@ from rlm.repl.steps.steps import (
     ReturnStep,
     LlmCallStep,
     AssignmentStep,
+    SpawnStep,
+    JoinStep,
     Step,
 )
 from rlm.repl.runtime.runtime_state import (
     RuntimeState,
     RuntimeValue,
     StepExecutionResult,
+    ToolFunction,
+    LlmFunction,
+    TaskHandle
 )
 
 
-def _interpret_tool_call_step(
+async def _interpret_tool_call_step(
     step: ToolCallStep,
     runtime_state: RuntimeState,
 ) -> StepExecutionResult:
     """
-    Execute a deterministic tool-call step.
+    Execute a deterministic tool-call step, awaiting only when the invoked
+    callable returns an awaitable.
 
     Parameters
     ----------
@@ -81,20 +94,26 @@ def _interpret_tool_call_step(
 
     Notes
     -----
-    - Arguments are evaluated through the expression interpreter and passed as
-      keyword arguments.
-    - This step does not automatically bind the tool's result into runtime
-      state.
+    - Arguments are evaluated synchronously through the expression interpreter
+      and passed as keyword arguments to the tool callable.
+    - If the tool callable returns an awaitable, it is awaited before normal
+      execution resumes.
+    - If `step.binding_target` is set, the final tool result is stored under
+      that binding name in `runtime_state.bindings`.
     """
-    tool_callable = runtime_state.tool_registry[step.tool_name]
-    kwargs: dict[str, RuntimeValue] = (
+    tool_callable: ToolFunction = runtime_state.tool_registry[step.tool_name]
+    kwargs: Dict[str, RuntimeValue] = (
         interpret_expression(step.args, runtime_state) if step.args is not None else {}
     )
-    tool_callable(**kwargs)
+    tool_result: RuntimeValue = tool_callable(**kwargs)
+    if isawaitable(tool_result):
+        tool_result = await tool_result
+    if step.binding_target:
+        runtime_state.bindings[step.binding_target] = tool_result
     return StepExecutionResult.normal()
 
 
-def _interpret_if_step(
+async def _interpret_if_step(
     step: IfStep,
     runtime_state: RuntimeState,
 ) -> StepExecutionResult:
@@ -129,16 +148,17 @@ def _interpret_if_step(
     - Branch execution is delegated to the step-sequence interpreter.
     """
     condition_value: RuntimeValue = interpret_expression(step.condition, runtime_state)
-    selected_steps = step.then_steps if condition_value else step.else_steps
-    return interpret_step_tuple(selected_steps, runtime_state)
+    selected_steps: Tuple[Step, ...] = step.then_steps if condition_value else step.else_steps
+    return await interpret_step_tuple(selected_steps, runtime_state)
 
 
-def _interpret_for_each_step(
+async def _interpret_for_each_step(
     step: ForEachStep,
     runtime_state: RuntimeState,
 ) -> StepExecutionResult:
     """
-    Execute a foreach step by iterating over the evaluated iterable expression.
+    Execute a foreach step by iterating over the evaluated iterable
+    expression.
 
     Parameters
     ----------
@@ -170,11 +190,11 @@ def _interpret_for_each_step(
     - Loop-body steps may refer to the current element via `Ref` using that
       binding name.
     """
-    iterable_value = interpret_expression(step.iterable_expr, runtime_state)
+    iterable_value: RuntimeValue = interpret_expression(step.iterable_expr, runtime_state)
 
     for item in iterable_value:
         runtime_state.bindings[step.loop_var_name] = item
-        result = interpret_step_tuple(step.body_steps, runtime_state)
+        result: StepExecutionResult = await interpret_step_tuple(step.body_steps, runtime_state)
         if result.did_return:
             return result
 
@@ -216,12 +236,13 @@ def _interpret_return_step(
     return StepExecutionResult.with_return(return_value)
 
 
-def _interpret_llm_call_step(
+async def _interpret_llm_call_step(
     step: LlmCallStep,
     runtime_state: RuntimeState,
 ) -> StepExecutionResult:
     """
-    Execute an LLM-call step.
+    Execute an LLM-call step, awaiting only when the invoked callable returns
+    an awaitable.
 
     Parameters
     ----------
@@ -245,16 +266,22 @@ def _interpret_llm_call_step(
 
     Notes
     -----
-    - Arguments are evaluated through the expression interpreter and passed as
-      keyword arguments.
-    - This step does not automatically bind the LLM-call result into runtime
-      state.
+    - Arguments are evaluated synchronously through the expression interpreter
+      and passed as keyword arguments to the LLM callable.
+    - If the LLM callable returns an awaitable, it is awaited before normal
+      execution resumes.
+    - If `step.binding_target` is set, the final LLM-call result is stored
+      under that binding name in `runtime_state.bindings`.
     """
-    llm_callable = runtime_state.llm_registry[step.baml_func_name]
-    kwargs: dict[str, RuntimeValue] = (
+    llm_callable: LlmFunction = runtime_state.llm_registry[step.baml_func_name]
+    kwargs: Dict[str, RuntimeValue] = (
         interpret_expression(step.args, runtime_state) if step.args is not None else {}
     )
-    llm_callable(**kwargs)
+    llm_result: RuntimeValue = llm_callable(**kwargs)
+    if isawaitable(llm_result):
+        llm_result = await llm_result
+    if step.binding_target:
+        runtime_state.bindings[step.binding_target] = llm_result
     return StepExecutionResult.normal()
 
 
@@ -296,7 +323,100 @@ def _interpret_assignment_step(
     return StepExecutionResult.normal()
 
 
-def interpret_step(
+def _interpret_spawn_step(
+    step: SpawnStep,
+    runtime_state: RuntimeState,
+) -> StepExecutionResult:
+    """
+    Execute a spawn step by launching a sub-program as an asyncio task against
+    a forked child runtime state.
+
+    Parameters
+    ----------
+    step : SpawnStep
+        Spawn-step node to execute.
+    runtime_state : RuntimeState
+        Current runtime state used for task registration and child-runtime
+        creation.
+
+    Returns
+    -------
+    StepExecutionResult
+        Non-returning result for normal execution.
+
+    Raises
+    ------
+    RuntimeError
+        When task creation fails inside the active asyncio event loop.
+
+    Notes
+    -----
+    - The spawned sub-program is executed by `interpret_step_tuple` in a child
+      runtime state created via `runtime_state.fork_child()`.
+    - The created task handle is stored in `runtime_state.task_registry` under
+      `step.binding_target`.
+    - Spawn does not wait for task completion; synchronization is delegated to
+      join steps.
+    """
+    runtime_state.task_registry[step.binding_target] = asyncio.create_task(
+        interpret_step_tuple(
+            steps=step.sub_program.steps,
+            runtime_state=runtime_state.fork_child(),
+        ),
+        name=step.binding_target,
+    )
+    return StepExecutionResult.normal()
+
+
+async def _interpret_join_step(
+    step: JoinStep,
+    runtime_state: RuntimeState,
+) -> StepExecutionResult:
+    """
+    Execute a join step by awaiting previously spawned task handles and
+    optionally binding their return payloads.
+
+    Parameters
+    ----------
+    step : JoinStep
+        Join-step node to execute.
+    runtime_state : RuntimeState
+        Current runtime state used for task-handle resolution and optional
+        result binding.
+
+    Returns
+    -------
+    StepExecutionResult
+        Non-returning result for normal execution.
+
+    Raises
+    ------
+    KeyError
+        When any task reference cannot be resolved from runtime bindings.
+    TypeError
+        When a resolved task reference is not awaitable as a task handle.
+
+    Notes
+    -----
+    - Task references are resolved through the expression interpreter before
+      awaiting them with `asyncio.gather`.
+    - Each joined task is expected to resolve to a `StepExecutionResult` from a
+      spawned sub-program.
+    - If `step.binding_target` is set, the join result stores a list of joined
+      sub-program return values in `runtime_state.bindings`.
+    """
+    tasks: List[TaskHandle] = [
+        interpret_expression(task_ref, runtime_state) for task_ref in step.tasks_ref
+    ]
+    results: List[StepExecutionResult] = await asyncio.gather(*tasks)
+    if step.binding_target:
+        runtime_state.bindings[step.binding_target] = [
+            result.return_value for result in results
+        ]
+    return StepExecutionResult.normal()
+
+
+async def interpret_step(
     step: Step,
     runtime_state: RuntimeState,
 ) -> StepExecutionResult:
@@ -329,25 +449,31 @@ def interpret_step(
     -----
     - This is the public entry point for single-step execution.
     - Dispatch is performed on concrete AST node classes.
+    - Spawn steps register background sub-program tasks, and join steps await
+      them and optionally bind their collected return values.
     """
     match step:
         case ToolCallStep():
-            return _interpret_tool_call_step(step, runtime_state)
+            return await _interpret_tool_call_step(step, runtime_state)
         case IfStep():
-            return _interpret_if_step(step, runtime_state)
+            return await _interpret_if_step(step, runtime_state)
         case ForEachStep():
-            return _interpret_for_each_step(step, runtime_state)
+            return await _interpret_for_each_step(step, runtime_state)
         case ReturnStep():
             return _interpret_return_step(step, runtime_state)
         case LlmCallStep():
-            return _interpret_llm_call_step(step, runtime_state)
+            return await _interpret_llm_call_step(step, runtime_state)
         case AssignmentStep():
             return _interpret_assignment_step(step, runtime_state)
+        case SpawnStep():
+            return _interpret_spawn_step(step, runtime_state)
+        case JoinStep():
+            return await _interpret_join_step(step, runtime_state)
         case _:
             raise ValueError(f"Unsupported step node: {type(step).__name__}")
 
 
-def interpret_step_tuple(
+async def interpret_step_tuple(
     steps: Tuple[Step, ...],
     runtime_state: RuntimeState,
 ) -> StepExecutionResult:
@@ -380,11 +506,15 @@ def interpret_step_tuple(
     Notes
     -----
     - This function is the natural entry point for executing branch bodies,
-      loop bodies, and top-level program step tuples.
-    - Sequence execution stops immediately when a nested return is encountered.
+      loop bodies, spawned sub-program bodies, and top-level program step
+      tuples.
+    - Sequence execution stops immediately when a nested return is
+      encountered.
+    - A spawned sub-program that returns will surface that return through its
+      task result rather than directly through the parent sequence.
     """
     for step in steps:
-        result = interpret_step(step, runtime_state)
+        result = await interpret_step(step, runtime_state)
         if result.did_return:
             return result
 
