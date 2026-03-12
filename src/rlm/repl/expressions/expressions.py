@@ -15,6 +15,8 @@ Key behaviors
 - Defines immutable dataclass nodes for literals, references, structured
   objects, lists, binary comparisons, logical expressions, and unary
   expressions.
+- Defines both binding references (`Ref`) and task-registry references
+  (`TaskRef`) as first-class expression nodes.
 - Does not perform evaluation, validation, name resolution, mutation, or any
   side-effecting work.
 
@@ -47,7 +49,14 @@ from typing import Mapping, Tuple, TypeAlias
 
 AtomicType: TypeAlias = int | float | str | bool | None
 Expr: TypeAlias = (
-    "Literal" | "Ref" | "ObjectExpr" | "ListExpr" | "ComparisonExpr" | "LogicalExpr" | "UnaryExpr"
+    "Literal"
+    | "Ref"
+    | "TaskRef"
+    | "ObjectExpr"
+    | "ListExpr"
+    | "ComparisonExpr"
+    | "LogicalExpr"
+    | "UnaryExpr"
 )
 
 
@@ -221,6 +230,40 @@ class Ref:
     - Resolution semantics are handled by downstream runtime or validation
       passes.
     - This node does not itself guarantee that the referenced binding exists.
+    """
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskRef:
+    """
+    Purpose
+    -------
+    Represent a named task-reference expression in the DSL. This node exists
+    to look up a previously registered task handle from runtime task state by
+    name.
+
+    Key behaviors
+    -------------
+    - Stores the symbolic name of a task handle to resolve at runtime.
+    - Allows expressions and steps to refer to spawned asynchronous work
+      tracked in runtime task registry state.
+
+    Parameters
+    ----------
+    name : str
+        Name of the task handle to resolve from runtime task registry.
+
+    Attributes
+    ----------
+    name : str
+        Name of the task handle to resolve from runtime task registry.
+
+    Notes
+    -----
+    - Resolution semantics are handled by downstream runtime or validation
+      passes.
+    - This node does not itself guarantee that the referenced task exists.
     """
     name: str
 

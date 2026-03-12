@@ -24,6 +24,8 @@ Conventions
 - Task registries are keyed by runtime binding names that store spawned task
   handles.
 - Runtime values may be atomic values, nested lists, or nested dictionaries.
+- Runtime values may also include task handles when task references are
+  interpreted.
 
 Downstream usage
 ----------------
@@ -40,12 +42,11 @@ from asyncio import Task
 
 from rlm.repl.expressions.expressions import AtomicType
 
+TaskHandle: TypeAlias = Task["StepExecutionResult"]
 RuntimeValue: TypeAlias = (
-    AtomicType | list["RuntimeValue"] | dict[str, "RuntimeValue"]
+    AtomicType | list["RuntimeValue"] | dict[str, "RuntimeValue"] | TaskHandle
 )
 Bindings: TypeAlias = Dict[str, RuntimeValue]
-
-TaskHandle: TypeAlias = Task["StepExecutionResult"]
 ToolFunction: TypeAlias = Callable[..., RuntimeValue]
 LlmFunction: TypeAlias = Callable[..., RuntimeValue]
 ToolRegistry: TypeAlias = Dict[str, ToolFunction]

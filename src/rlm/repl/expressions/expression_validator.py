@@ -7,8 +7,8 @@ catch malformed AST data before runtime execution begins.
 
 Key behaviors
 -------------
-- Validates literal, reference, object, list, comparison, logical, and unary
-  expression nodes.
+- Validates literal, object, list, comparison, logical, and unary
+  expression nodes, including both binding references and task references.
 - Recursively validates nested expressions contained inside object and list
   expressions.
 - Checks that operator fields are instances of the correct enum types.
@@ -34,6 +34,7 @@ from collections.abc import Mapping
 from rlm.repl.expressions.expressions import (
     Literal,
     Ref,
+    TaskRef,
     ObjectExpr,
     ListExpr,
     ComparisonExpr,
@@ -104,6 +105,39 @@ def _validate_ref(ref: Ref) -> None:
         raise TypeError("Reference name must be a string.")
     if not ref.name.strip():
         raise ValueError("Reference name must be a non-empty string.")
+
+
+def _validate_task_ref(task_ref: TaskRef) -> None:
+    """
+    Validate that a task-reference node contains a usable task name.
+
+    Parameters
+    ----------
+    task_ref : TaskRef
+        Task-reference AST node to validate.
+
+    Returns
+    -------
+    None
+        This function returns nothing when validation succeeds.
+
+    Raises
+    ------
+    TypeError
+        When the task-reference name is not a string.
+    ValueError
+        When the task-reference name is empty or only whitespace.
+
+    Notes
+    -----
+    - This function validates only the shape of the task-reference name.
+    - Actual name resolution against runtime task registry is not performed
+      here.
+    """
+    if not isinstance(task_ref.name, str):
+        raise TypeError("Task reference name must be a string.")
+    if not task_ref.name.strip():
+        raise ValueError("Task reference name must be a non-empty string.")
 
 
 def _validate_object_expr(object_expr: ObjectExpr) -> None:
@@ -308,6 +342,8 @@ def validate_expression(expr: Expr) -> None:
             _validate_literal(expr)
         case Ref():
             _validate_ref(expr)
+        case TaskRef():
+            _validate_task_ref(expr)
         case ObjectExpr():
             _validate_object_expr(expr)
         case ListExpr():

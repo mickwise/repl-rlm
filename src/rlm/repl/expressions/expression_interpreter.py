@@ -9,7 +9,8 @@ Key behaviors
 -------------
 - Evaluates literal, reference, object, list, comparison, logical, and unary
   expression nodes.
-- Resolves named references against the supplied runtime state.
+- Resolves named references against the supplied runtime bindings and task
+  references against runtime task registry state.
 - Recursively evaluates nested expressions into concrete runtime values.
 - Uses Python truthiness for logical and unary-not evaluation.
 
@@ -35,6 +36,7 @@ from typing import Dict, List
 from rlm.repl.expressions.expressions import (
     Literal,
     Ref,
+    TaskRef,
     ObjectExpr,
     ListExpr,
     ComparisonExpr,
@@ -100,6 +102,38 @@ def _interpret_ref(ref: Ref, runtime_state: RuntimeState) -> RuntimeValue:
     - Reference lookup is a runtime concern and depends on current bindings.
     """
     return runtime_state.bindings[ref.name]
+
+
+def _interpret_task_ref(
+    task_ref: TaskRef,
+    runtime_state: RuntimeState,
+) -> RuntimeValue:
+    """
+    Resolve a task-reference node against the current runtime task registry.
+
+    Parameters
+    ----------
+    task_ref : TaskRef
+        Task-reference AST node naming a previously registered task handle.
+    runtime_state : RuntimeState
+        Current runtime state used for task-name resolution.
+
+    Returns
+    -------
+    RuntimeValue
+        Runtime task handle currently registered to the supplied task name.
+
+    Raises
+    ------
+    KeyError
+        When the task-reference name is not present in runtime task registry.
+
+    Notes
+    -----
+    - Task-reference lookup is a runtime concern and depends on current task
+      registry content.
+    """
+    return runtime_state.task_registry[task_ref.name]
 
 
 def _interpret_object_expr(
@@ -325,7 +359,7 @@ def _interpret_unary_expr(
             raise ValueError(f"Unsupported unary operator: {operator}")
 
 
-def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValue:
+def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValue: # type: ignore
     """
     Interpret a general AST expression node into a concrete runtime value.
 
@@ -346,7 +380,8 @@ def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValu
     Raises
     ------
     KeyError
-        When a reference names a missing binding.
+        When a reference names a missing binding or task reference names a
+        missing task handle.
     ValueError
         When the expression node or one of its operators is unsupported.
 
@@ -360,6 +395,8 @@ def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValu
             return _interpret_literal(expr)
         case Ref():
             return _interpret_ref(expr, runtime_state)
+        case TaskRef():
+            return _interpret_task_ref(expr, runtime_state)
         case ObjectExpr():
             return _interpret_object_expr(expr, runtime_state)
         case ListExpr():

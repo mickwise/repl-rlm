@@ -45,7 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias, Tuple, Mapping, Any
 
-from rlm.repl.expressions.expressions import Expr, ObjectExpr, Ref
+from rlm.repl.expressions.expressions import Expr, ObjectExpr, TaskRef
 
 Step: TypeAlias = (
     "ToolCallStep"
@@ -415,7 +415,7 @@ class JoinStep:
     - Using a tuple allows one join step to gather multiple task handles at a
       single synchronization point.
     """
-    tasks_ref: Tuple[Ref, ...]
+    tasks_ref: Tuple[TaskRef, ...]
     binding_target: str | None
 
 
