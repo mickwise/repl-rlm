@@ -3,15 +3,15 @@ Purpose
 -------
 Validate step nodes and top-level programs from the RLM DSL AST before runtime
 execution. This module exists to enforce the structural correctness of
-executable step nodes and to catch malformed program structure before
-interpretation begins.
+executable step nodes, including concurrency-oriented spawn and join steps, and
+to catch malformed program structure before interpretation begins.
 
 Key behaviors
 -------------
-- Validates tool-call, conditional, foreach, return, LLM-call, and assignment
-  step nodes.
-- Recursively validates nested step tuples contained inside branching and loop
-  constructs.
+- Validates tool-call, conditional, foreach, return, LLM-call, assignment,
+  spawn, and join step nodes.
+- Recursively validates nested step tuples contained inside branching, loop,
+  and spawned sub-program constructs.
 - Delegates all expression validation to the expression-validator module.
 - Validates the top-level program structure and its metadata container.
 
@@ -21,8 +21,8 @@ Conventions
 - Expression fields are validated by calling `validate_expression`.
 - Nested step sequences must be tuples and are recursively validated step by
   step.
-- This module does not perform runtime name resolution, tool lookup, or value
-  compatibility checks.
+- This module does not perform runtime name resolution, tool lookup, task
+  existence checks, or value compatibility checks.
 
 Downstream usage
 ----------------
@@ -42,6 +42,8 @@ from rlm.repl.steps.steps import (
     ReturnStep,
     LlmCallStep,
     AssignmentStep,
+    SpawnStep,
+    JoinStep,
     Step,
     Program,
 )
@@ -141,11 +143,16 @@ def _validate_tool_call_step(step: ToolCallStep) -> None:
     - Tool lookup is not performed here.
     - Arguments are validated structurally through the expression validator when
       present.
+    - If `step.binding_target` is provided, it is validated as a non-empty
+      string.
     """
     _validate_non_empty_string(step.tool_name, "ToolCallStep.tool_name")
 
     if step.args is not None:
         validate_expression(step.args)
+
+    if step.binding_target:
+        _validate_non_empty_string(step.binding_target, "ToolCallStep.binding_target")
 
 
 def _validate_if_step(step: IfStep) -> None:
@@ -266,6 +273,8 @@ def _validate_llm_call_step(step: LlmCallStep) -> None:
     - Actual BAML function resolution is not performed here.
     - Arguments are validated structurally through the expression validator when
       present.
+    - If `step.binding_target` is provided, it is validated as a non-empty
+      string.
     """
     _validate_non_empty_string(
         step.baml_func_name,
@@ -274,6 +283,9 @@ def _validate_llm_call_step(step: LlmCallStep) -> None:
 
     if step.args is not None:
         validate_expression(step.args)
+
+    if step.binding_target:
+        _validate_non_empty_string(step.binding_target, "LlmCallStep.binding_target")
 
 
 def _validate_assignment_step(step: AssignmentStep) -> None:
@@ -309,6 +321,77 @@ def _validate_assignment_step(step: AssignmentStep) -> None:
     )
 
 
+def _validate_spawn_step(step: SpawnStep) -> None:
+    """
+    Validate the structural correctness of a spawn step.
+
+    Parameters
+    ----------
+    step : SpawnStep
+        Spawn-step node to validate.
+
+    Returns
+    -------
+    None
+        This function returns nothing when validation succeeds.
+
+    Raises
+    ------
+    TypeError
+        When a field has the wrong type.
+    ValueError
+        When the binding target is empty or whitespace-only.
+
+    Notes
+    -----
+    - The spawn binding target is required and is validated as a non-empty
+      string.
+    - Spawned sub-program validation is delegated to `validate_program`.
+    - This function validates only structure and does not check runtime task
+      registry state.
+    """
+    _validate_non_empty_string(step.binding_target, "SpawnStep.binding_target")
+    validate_program(step.sub_program)
+
+
+def _validate_join_step(step: JoinStep) -> None:
+    """
+    Validate the structural correctness of a join step.
+
+    Parameters
+    ----------
+    step : JoinStep
+        Join-step node to validate.
+
+    Returns
+    -------
+    None
+        This function returns nothing when validation succeeds.
+
+    Raises
+    ------
+    TypeError
+        When `tasks_ref` is not a tuple or contains malformed TaskRefs.
+    ValueError
+        When the optional binding target is empty or whitespace-only.
+
+    Notes
+    -----
+    - `tasks_ref` must be a tuple of TaskRefs, each of which is delegated to
+      the expression validator.
+    - If `step.binding_target` is provided, it is validated as a non-empty
+      string.
+    - This function validates only structure and does not check whether the
+      referenced tasks exist at runtime.
+    """
+    if not isinstance(step.tasks_ref, tuple):
+        raise TypeError("JoinStep.tasks_ref must be a tuple.")
+    for task_ref in step.tasks_ref:
+        validate_expression(task_ref)
+    if step.binding_target:
+        _validate_non_empty_string(step.binding_target, "JoinStep.binding_target")
+
+
 def validate_step(step: Step) -> None:
     """
     Validate the structural correctness of a general step AST node.
@@ -335,6 +418,8 @@ def validate_step(step: Step) -> None:
     -----
     - This is the public entry point for step validation.
     - Validation dispatch is performed on concrete AST node classes.
+    - Spawn and join steps are validated as structural concurrency constructs,
+      including spawned sub-program shape and join-task reference containers.
     """
     match step:
         case ToolCallStep():
@@ -349,6 +434,10 @@ def validate_step(step: Step) -> None:
             _validate_llm_call_step(step)
         case AssignmentStep():
             _validate_assignment_step(step)
+        case SpawnStep():
+            _validate_spawn_step(step)
+        case JoinStep():
+            _validate_join_step(step)
         case _:
             raise TypeError(
                 f"Unsupported step node for validation: {type(step).__name__}"
