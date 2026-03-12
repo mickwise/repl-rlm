@@ -2,37 +2,41 @@
 Purpose
 -------
 Define the runtime state structures used during AST interpretation and program
-execution. This module exists to centralize mutable interpreter state, callable
-registries, and step-execution control-flow results outside the AST itself.
+execution. This module exists to centralize mutable interpreter state,
+callable registries, task tracking, and step-execution control-flow results
+outside the AST itself.
 
 Key behaviors
 -------------
 - Defines the recursive runtime value type produced by expression evaluation.
-- Defines the bindings mapping shape used for name resolution.
-- Defines tool and LLM callable registry shapes used during step execution.
-- Defines the runtime state container that stores current bindings and
-  executable registries.
+- Defines bindings, tool-registry, LLM-registry, and task-registry shapes used
+  during runtime execution.
+- Defines the runtime state container that stores current bindings, callable
+  registries, and spawned task handles.
 - Defines the step-execution result type used to propagate return control flow.
 
 Conventions
 -----------
-- Runtime state is distinct from AST structure and should hold evaluated values
-  and executable registries only.
+- Runtime state is distinct from AST structure and should hold evaluated values,
+  registries, and task bookkeeping only.
 - Bindings are keyed by DSL reference names and map to concrete runtime values.
 - Tool and LLM registries are keyed by symbolic names from AST step nodes.
+- Task registries are keyed by runtime binding names that store spawned task
+  handles.
 - Runtime values may be atomic values, nested lists, or nested dictionaries.
 
 Downstream usage
 ----------------
 Expression and step interpreters should consume `RuntimeState` when resolving
-references, invoking tools and LLM functions, and storing evaluated values.
-Higher-level runtime loops should own and mutate a single `RuntimeState`
-instance during execution.
+references, invoking tools and LLM functions, storing evaluated values, and
+tracking spawned tasks. Higher-level runtime loops should own and mutate a
+single `RuntimeState` instance during execution.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TypeAlias, Dict, Callable
+from asyncio import Task
 
 from rlm.repl.expressions.expressions import AtomicType
 
@@ -41,11 +45,12 @@ RuntimeValue: TypeAlias = (
 )
 Bindings: TypeAlias = Dict[str, RuntimeValue]
 
+TaskHandle: TypeAlias = Task["StepExecutionResult"]
 ToolFunction: TypeAlias = Callable[..., RuntimeValue]
 LlmFunction: TypeAlias = Callable[..., RuntimeValue]
 ToolRegistry: TypeAlias = Dict[str, ToolFunction]
 LlmRegistry: TypeAlias = Dict[str, LlmFunction]
-
+TaskRegistry: TypeAlias = Dict[str, TaskHandle]
 
 @dataclass(frozen=True)
 class StepExecutionResult:
@@ -141,27 +146,25 @@ class StepExecutionResult:
         return cls(did_return=True, return_value=return_value)
 
 
-@dataclass
 class RuntimeState:
     """
     Purpose
     -------
     Represent the mutable runtime environment used while interpreting DSL
-    programs. This class exists to store the current bindings and executable
-    registries available to reference expressions and step execution.
+    programs. This class exists to store the current bindings, callable
+    registries, and spawned-task handles available during execution.
 
     Key behaviors
     -------------
-    - Stores the current bindings mapping used for reference resolution.
-    - Stores the registered tool callables available to tool-call steps.
-    - Stores the registered LLM callables available to LLM-call steps.
-    - Provides a single mutable state object that can be threaded through
-      interpreter passes.
+    - Stores the current bindings mapping used for reference resolution and
+      assignment.
+    - Stores the registered tool and LLM callables available to executable step
+      nodes.
+    - Stores the active task registry used for first-class concurrency features.
+    - Provides a fork operation for constructing isolated child runtime states.
 
     Parameters
     ----------
-    bindings : Bindings
-        Mapping from binding names to concrete runtime values.
     tool_registry : ToolRegistry
         Mapping from tool names to concrete Python callables.
     llm_registry : LlmRegistry
@@ -170,19 +173,63 @@ class RuntimeState:
     Attributes
     ----------
     bindings : Bindings
-        Mapping from binding names to concrete runtime values.
+        Mapping from binding names to concrete runtime values currently visible in
+        this runtime state.
     tool_registry : ToolRegistry
-        Mapping from tool names to concrete Python callables.
+        Mapping from tool names to concrete Python callables shared by this
+        runtime state.
     llm_registry : LlmRegistry
-        Mapping from LLM function names to concrete Python callables.
+        Mapping from LLM function names to concrete Python callables shared by
+        this runtime state.
+    task_registry : TaskRegistry
+        Mapping from task-handle binding names to spawned async task handles owned
+        by this runtime state.
 
     Notes
     -----
     - Runtime state is intentionally separate from the AST, which remains
       immutable.
-    - This class does not enforce scope, rebinding rules, or registry
-      completeness by itself.
+    - Child runtime states should share callable registries but receive copied
+      bindings and a fresh task registry.
+    - This class does not enforce scope, rebinding rules, or registry completeness
+      by itself.
     """
-    bindings: Bindings = field(default_factory=dict)
-    tool_registry: ToolRegistry = field(default_factory=dict)
-    llm_registry: LlmRegistry = field(default_factory=dict)
+
+    def __init__(self, tool_registry: ToolRegistry, llm_registry: LlmRegistry) -> None:
+        self.bindings: Bindings = {}
+        self.tool_registry: ToolRegistry = tool_registry
+        self.llm_registry: LlmRegistry = llm_registry
+        self.task_registry: TaskRegistry = {}
+
+
+    def fork_child(self) -> RuntimeState:
+        """
+        Create a child runtime state for spawned concurrent execution.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        RuntimeState
+            A new runtime state that shares tool and LLM registries with the parent,
+            receives a shallow copy of the parent's bindings, and starts with an empty
+            task registry.
+
+        Raises
+        ------
+        None
+
+        Notes
+        -----
+        - Bindings are shallow-copied so child rebinding does not mutate the parent
+          bindings dictionary.
+        - Tool and LLM registries are shared because they are treated as read-only
+          capability tables.
+        - The child task registry starts empty so spawned child execution does not
+          inherit the parent's active task table.
+        """
+        child: RuntimeState =  RuntimeState(self.tool_registry, self.llm_registry)
+        child.bindings = dict(self.bindings)
+        return child
