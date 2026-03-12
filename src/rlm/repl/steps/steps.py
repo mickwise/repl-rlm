@@ -3,13 +3,14 @@ Purpose
 -------
 Define the concrete step-level abstract syntax tree node types used by the REPL
 DSL, along with the top-level `Program` root node and the `Step` sum-type alias.
-This module exists to represent executable control-flow and action structure
-separately from expression nodes.
+This module exists to represent executable control-flow, action structure, and
+first-class concurrency constructs separately from expression nodes.
 
 Key behaviors
 -------------
 - Defines immutable dataclass node types for tool calls, LLM calls,
-  assignments, conditionals, iteration, returns, and whole-program structure.
+  assignments, conditionals, iteration, returns, concurrency operations, and
+  whole-program structure.
 - Defines the `Step` type family as a sum-type alias over the concrete step
   node classes in this module.
 - Uses `Expr` and `ObjectExpr` imported from the expressions layer for step
@@ -23,20 +24,20 @@ Conventions
   descriptions rather than runtime execution objects.
 - Expression node definitions do not live in this module; they are imported
   from `rlm.repl.expressions.expressions` and referenced here by composition.
-- Branch bodies, loop bodies, and program bodies are represented as ordered
-  tuples of `Step` nodes.
+- Branch bodies, loop bodies, spawned subprograms, and program bodies are
+  represented as ordered step structures.
 - Program metadata is stored as a generic mapping so downstream planners,
   validators, and runtimes can attach annotations without constraining this
   layer.
 - This module does not perform validation, interpretation, dispatch, scope
-  management, or side-effecting work.
+  management, scheduling, or side-effecting work.
 
 Downstream usage
 ----------------
 Planner or parsing code should construct these step nodes to describe legal DSL
-program structure. Validator, resolver, and interpreter code should consume the
-resulting `Program` and `Step` trees and implement execution behavior in
-separate downstream passes.
+program structure. Validator, resolver, scheduler, and interpreter code should
+consume the resulting `Program` and `Step` trees and implement execution
+behavior in separate downstream passes.
 """
 from __future__ import annotations
 
@@ -44,10 +45,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias, Tuple, Mapping, Any
 
-from rlm.repl.expressions.expressions import Expr, ObjectExpr
+from rlm.repl.expressions.expressions import Expr, ObjectExpr, Ref
 
 Step: TypeAlias = (
-    "ToolCallStep" | "IfStep" | "ForEachStep" | "ReturnStep" | "LlmCallStep" | "AssignmentStep"
+    "ToolCallStep"
+    |
+    "IfStep"
+    |
+    "ForEachStep"
+    |
+    "ReturnStep"
+    |
+    "LlmCallStep"
+    |
+    "AssignmentStep"
+    |
+    "SpawnStep"
+    |
+    "JoinStep"
 )
 
 
@@ -57,8 +72,8 @@ class ToolCallStep:
     Purpose
     -------
     Represent a deterministic tool invocation step in the DSL. This node exists
-    to describe which registered tool should be called and with what structured
-    arguments.
+    to describe which registered tool should be called, with what structured
+    arguments, and optionally where its result should be bound.
 
     Key behaviors
     -------------
@@ -66,6 +81,8 @@ class ToolCallStep:
       layer.
     - Carries structured named arguments as an object expression or `None` when
       no arguments are supplied.
+    - Optionally carries a binding target name for storing the tool result in
+      runtime state.
 
     Parameters
     ----------
@@ -74,6 +91,9 @@ class ToolCallStep:
     args : ObjectExpr | None
         Structured named argument payload for the tool call, or `None` when the
         call takes no arguments.
+    binding_target : str | None
+        Optional runtime binding name under which the tool result should be
+        stored.
 
     Attributes
     ----------
@@ -82,16 +102,20 @@ class ToolCallStep:
     args : ObjectExpr | None
         Structured named argument payload for the tool call, or `None` when the
         call takes no arguments.
+    binding_target : str | None
+        Optional runtime binding name under which the tool result should be
+        stored.
 
     Notes
     -----
     - This class describes a call structurally and does not contain executable
       function objects.
-    - Actual dispatch, validation, and side effects are handled by downstream
-      runtime code.
+    - Actual dispatch, validation, binding, and side effects are handled by
+      downstream runtime code.
     """
     tool_name: str
     args: ObjectExpr | None
+    binding_target: str | None
 
 
 @dataclass(frozen=True)
@@ -227,7 +251,7 @@ class LlmCallStep:
     -------
     Represent an explicit LLM-backed subcall in the DSL. This node exists to
     invoke a named BAML function with structured arguments as part of online
-    program execution.
+    program execution and optionally bind its result.
 
     Key behaviors
     -------------
@@ -235,6 +259,8 @@ class LlmCallStep:
       layer.
     - Carries structured named arguments as an object expression or `None` when
       no arguments are supplied.
+    - Optionally carries a binding target name for storing the LLM result in
+      runtime state.
 
     Parameters
     ----------
@@ -243,6 +269,9 @@ class LlmCallStep:
     args : ObjectExpr | None
         Structured named argument payload for the LLM call, or `None` when the
         call takes no arguments.
+    binding_target : str | None
+        Optional runtime binding name under which the LLM result should be
+        stored.
 
     Attributes
     ----------
@@ -251,16 +280,20 @@ class LlmCallStep:
     args : ObjectExpr | None
         Structured named argument payload for the LLM call, or `None` when the
         call takes no arguments.
+    binding_target : str | None
+        Optional runtime binding name under which the LLM result should be
+        stored.
 
     Notes
     -----
     - This node represents an explicit model-backed action and should remain
       distinct from deterministic control-flow nodes.
-    - Actual recursion, prompting, and model dispatch are handled downstream by
-      the runtime.
+    - Actual recursion, prompting, dispatch, and binding are handled downstream
+      by the runtime.
     """
     baml_func_name: str
     args: ObjectExpr | None
+    binding_target: str | None
 
 
 @dataclass(frozen=True)
@@ -300,6 +333,90 @@ class AssignmentStep:
     """
     value_expr: Expr
     binding_target: str
+
+
+@dataclass(frozen=True)
+class SpawnStep:
+    """
+    Purpose
+    -------
+    Represent a first-class concurrency operation that launches a child program
+    asynchronously. This node exists to create a task handle that can later be
+    joined by downstream concurrency-aware runtime code.
+
+    Key behaviors
+    -------------
+    - Holds a binding target name under which the spawned task handle should be
+      stored in runtime state.
+    - Holds a child program that should execute concurrently in a spawned task.
+
+    Parameters
+    ----------
+    binding_target : str
+        Runtime binding name under which the spawned task handle should be
+        stored.
+    sub_program : Program
+        Child program to execute concurrently.
+
+    Attributes
+    ----------
+    binding_target : str
+        Runtime binding name under which the spawned task handle should be
+        stored.
+    sub_program : Program
+        Child program to execute concurrently.
+
+    Notes
+    -----
+    - This node describes concurrent work structurally and does not itself
+      schedule tasks.
+    - Downstream runtime code is responsible for child-state handling, task
+      creation, and task-table updates.
+    """
+    binding_target: str
+    sub_program: Program
+
+
+@dataclass(frozen=True)
+class JoinStep:
+    """
+    Purpose
+    -------
+    Represent a first-class concurrency operation that waits for one or more
+    previously spawned tasks to finish. This node exists to provide a fan-in
+    synchronization point and optionally bind the collected results.
+
+    Key behaviors
+    -------------
+    - Holds references to one or more task handles that should be awaited.
+    - Optionally holds a binding target name under which the collected task
+      results should be stored.
+
+    Parameters
+    ----------
+    tasks_ref : Tuple[Ref, ...]
+        References to task handles that should be joined.
+    binding_target : str | None
+        Optional runtime binding name under which the collected task results
+        should be stored.
+
+    Attributes
+    ----------
+    tasks_ref : Tuple[Ref, ...]
+        References to task handles that should be joined.
+    binding_target : str | None
+        Optional runtime binding name under which the collected task results
+        should be stored.
+
+    Notes
+    -----
+    - This node does not itself await tasks; downstream runtime code implements
+      the actual synchronization semantics.
+    - Using a tuple allows one join step to gather multiple task handles at a
+      single synchronization point.
+    """
+    tasks_ref: Tuple[Ref, ...]
+    binding_target: str | None
 
 
 @dataclass(frozen=True)
