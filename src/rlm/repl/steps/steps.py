@@ -9,8 +9,8 @@ first-class concurrency constructs separately from expression nodes.
 Key behaviors
 -------------
 - Defines immutable dataclass node types for tool calls, LLM calls,
-  assignments, conditionals, iteration, returns, concurrency operations, and
-  whole-program structure.
+  recursive LLM-backed subprogram calls, assignments, conditionals, iteration,
+  returns, concurrency operations, and whole-program structure.
 - Defines the `Step` type family as a sum-type alias over the concrete step
   node classes in this module.
 - Uses `Expr` and `ObjectExpr` imported from the expressions layer for step
@@ -57,6 +57,8 @@ Step: TypeAlias = (
     "ReturnStep"
     |
     "LlmCallStep"
+    |
+    "RecursiveCallStep"
     |
     "AssignmentStep"
     |
@@ -290,6 +292,60 @@ class LlmCallStep:
       distinct from deterministic control-flow nodes.
     - Actual recursion, prompting, dispatch, and binding are handled downstream
       by the runtime.
+    """
+    baml_func_name: str
+    args: ObjectExpr | None
+    binding_target: str | None
+
+
+@dataclass(frozen=True)
+class RecursiveCallStep:
+    """
+    Purpose
+    -------
+    Represent a model-generated recursive child-program call in the DSL. This
+    node exists to request a child program from a named LLM function, execute
+    that child program in a forked runtime environment, and optionally bind the
+    child's returned result back into the parent runtime.
+
+    Key behaviors
+    -------------
+    - Carries the symbolic BAML function name used to generate the child
+      program.
+    - Carries structured named arguments as an object expression or `None` when
+      no arguments are supplied.
+    - Optionally carries a binding target name for storing the child-program
+      return value in parent runtime state.
+
+    Parameters
+    ----------
+    baml_func_name : str
+        Name of the BAML function expected to produce a child `Program`.
+    args : ObjectExpr | None
+        Structured named argument payload for the recursive call, or `None`
+        when the call takes no arguments.
+    binding_target : str | None
+        Optional parent-runtime binding name under which the child-program
+        return value should be stored.
+
+    Attributes
+    ----------
+    baml_func_name : str
+        Name of the BAML function expected to produce a child `Program`.
+    args : ObjectExpr | None
+        Structured named argument payload for the recursive call, or `None`
+        when the call takes no arguments.
+    binding_target : str | None
+        Optional parent-runtime binding name under which the child-program
+        return value should be stored.
+
+    Notes
+    -----
+    - This node is distinct from `LlmCallStep` because it models recursive
+      child-program generation and execution, not a plain model-backed value
+      call.
+    - Child execution occurs in a forked runtime so rebinding inside the child
+      does not mutate parent bindings directly.
     """
     baml_func_name: str
     args: ObjectExpr | None

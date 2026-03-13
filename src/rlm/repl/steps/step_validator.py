@@ -9,7 +9,7 @@ to catch malformed program structure before interpretation begins.
 Key behaviors
 -------------
 - Validates tool-call, conditional, foreach, return, LLM-call, assignment,
-  spawn, and join step nodes.
+  recursive-call, spawn, and join step nodes.
 - Recursively validates nested step tuples contained inside branching, loop,
   and spawned sub-program constructs.
 - Delegates all expression validation to the expression-validator module.
@@ -49,6 +49,7 @@ from rlm.repl.steps.steps import (
     JoinStep,
     LlmCallStep,
     Program,
+    RecursiveCallStep,
     ReturnStep,
     SpawnStep,
     Step,
@@ -333,6 +334,51 @@ def _validate_assignment_step(step: AssignmentStep) -> None:
     _validate_non_empty_string(step.binding_target, "AssignmentStep.binding_target")
 
 
+def _validate_recursive_call_step(step: RecursiveCallStep) -> None:
+    """
+    Validate the structural correctness of a recursive-call step.
+
+    Parameters
+    ----------
+    step : RecursiveCallStep
+        Recursive-call step node to validate.
+
+    Returns
+    -------
+    None
+        This function returns nothing when validation succeeds.
+
+    Raises
+    ------
+    TypeError
+        When a field has the wrong type.
+    ValueError
+        When the BAML function name is empty or whitespace-only.
+
+    Notes
+    -----
+    - Actual BAML function resolution and child-program generation are not
+      performed here.
+    - Arguments are validated structurally through the expression validator
+      when present.
+    - If `step.binding_target` is provided, it is validated as a non-empty
+      string.
+    """
+    _validate_non_empty_string(
+        step.baml_func_name,
+        "RecursiveCallStep.baml_func_name",
+    )
+
+    if step.args is not None:
+        validate_expression(step.args)
+
+    if step.binding_target:
+        _validate_non_empty_string(
+            step.binding_target,
+            "RecursiveCallStep.binding_target",
+        )
+
+
 def _validate_spawn_step(step: SpawnStep) -> None:
     """
     Validate the structural correctness of a spawn step.
@@ -430,8 +476,9 @@ def validate_step(step: Step) -> None:
     -----
     - This is the public entry point for step validation.
     - Validation dispatch is performed on concrete AST node classes.
-    - Spawn and join steps are validated as structural concurrency constructs,
-      including spawned sub-program shape and join-task reference containers.
+    - Recursive, spawn, and join steps are validated as structural child-work
+      constructs, including recursive-call payload shape, spawned sub-program
+      shape, and join-task reference containers.
     """
     try:
         match step:
@@ -445,6 +492,8 @@ def validate_step(step: Step) -> None:
                 _validate_return_step(step)
             case LlmCallStep():
                 _validate_llm_call_step(step)
+            case RecursiveCallStep():
+                _validate_recursive_call_step(step)
             case AssignmentStep():
                 _validate_assignment_step(step)
             case SpawnStep():

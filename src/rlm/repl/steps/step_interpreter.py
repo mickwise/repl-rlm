@@ -8,9 +8,9 @@ return control flow through nested step structures.
 
 Key behaviors
 -------------
-- Executes tool-call, conditional, foreach, return, LLM-call, assignment,
-  spawn, and join steps, awaiting tool and LLM results only when the invoked
-  call returns an awaitable.
+- Executes tool-call, conditional, foreach, return, LLM-call, recursive-call,
+  assignment, spawn, and join steps, awaiting tool and LLM results only when
+  the invoked call returns an awaitable.
 - Resolves call arguments by evaluating their object-expression payloads.
 - Launches spawned sub-programs in child runtime states and joins their task
   handles back into normal step execution.
@@ -58,12 +58,15 @@ from rlm.repl.runtime.runtime_state import (
     TaskHandle,
     ToolFunction,
 )
+from rlm.repl.steps.step_validator import validate_program
 from rlm.repl.steps.steps import (
     AssignmentStep,
     ForEachStep,
     IfStep,
     JoinStep,
     LlmCallStep,
+    Program,
+    RecursiveCallStep,
     ReturnStep,
     SpawnStep,
     Step,
@@ -354,6 +357,107 @@ async def _interpret_llm_call_step(
     return StepExecutionResult.normal()
 
 
+async def _interpret_recursive_call_step(
+    step: RecursiveCallStep,
+    runtime_state: RuntimeState,
+) -> StepExecutionResult:
+    """
+    Execute a recursive-call step by asking an LLM callable to generate a child
+    program, then executing that child program in a forked runtime state.
+
+    Parameters
+    ----------
+    step : RecursiveCallStep
+        Recursive-call step node to execute.
+    runtime_state : RuntimeState
+        Current parent runtime state used for argument evaluation, registry
+        lookup, and optional result binding.
+
+    Returns
+    -------
+    StepExecutionResult
+        Non-returning result for normal execution.
+
+    Raises
+    ------
+    KeyError
+        When the step's BAML function name does not exist in the runtime LLM
+        registry.
+    TypeError
+        When the resolved callable is invoked with incompatible arguments.
+    ValueError
+        When the resolved callable does not return a valid child `Program`.
+
+    Notes
+    -----
+    - Arguments are evaluated synchronously through the expression interpreter
+      and passed as keyword arguments to the LLM callable.
+    - The LLM callable is expected to return a `Program` object, directly or
+      via an awaitable.
+    - Child execution occurs against `runtime_state.fork_child()` so child
+      rebinding does not mutate the parent's bindings dictionary.
+    - If `step.binding_target` is set, the child-program return value is stored
+      under that binding name in `runtime_state.bindings`.
+    """
+    try:
+        llm_callable: LlmFunction = runtime_state.llm_registry[step.baml_func_name]
+    except KeyError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.REGISTRY_LOOKUP_ERROR,
+            message=(
+                "Recursive child-program generator not found in registry: "
+                f"{step.baml_func_name}"
+            ),
+            cause=error,
+        ) from error
+
+    kwargs: RuntimeValue = (
+        interpret_expression(step.args, runtime_state) if step.args is not None else {}
+    )
+    if not isinstance(kwargs, dict):
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_CALL_OPERATION,
+            message="Recursive call arguments must evaluate to an object/dict.",
+        )
+
+    try:
+        child_program_result = llm_callable(**kwargs)
+    except TypeError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_CALL_OPERATION,
+            message=(
+                "Invalid recursive child-program call arguments for: "
+                f"{step.baml_func_name}"
+            ),
+            cause=error,
+        ) from error
+
+    if isawaitable(child_program_result):
+        child_program_result = await child_program_result
+
+    if not isinstance(child_program_result, Program):
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_CALL_OPERATION,
+            message=(
+                "Recursive child-program generator must return a Program: "
+                f"{step.baml_func_name}"
+            ),
+        )
+
+    validate_program(child_program_result)
+
+    child_runtime_state = runtime_state.fork_child()
+    child_result = await interpret_step_tuple(
+        steps=child_program_result.steps,
+        runtime_state=child_runtime_state,
+    )
+
+    if step.binding_target:
+        runtime_state.bindings[step.binding_target] = child_result.return_value
+
+    return StepExecutionResult.normal()
+
+
 def _interpret_assignment_step(
     step: AssignmentStep,
     runtime_state: RuntimeState,
@@ -549,6 +653,8 @@ async def interpret_step(
     -----
     - This is the public entry point for single-step execution.
     - Dispatch is performed on concrete AST node classes.
+    - Recursive-call steps generate and execute child programs in forked child
+      runtimes.
     - Spawn steps register background sub-program tasks, and join steps await
       them and optionally bind their collected return values.
     """
@@ -564,6 +670,8 @@ async def interpret_step(
                 return _interpret_return_step(step, runtime_state)
             case LlmCallStep():
                 return await _interpret_llm_call_step(step, runtime_state)
+            case RecursiveCallStep():
+                return await _interpret_recursive_call_step(step, runtime_state)
             case AssignmentStep():
                 return _interpret_assignment_step(step, runtime_state)
             case SpawnStep():

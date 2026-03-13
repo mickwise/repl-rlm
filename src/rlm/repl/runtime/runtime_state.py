@@ -26,6 +26,8 @@ Conventions
 - Runtime values may be atomic values, nested lists, or nested dictionaries.
 - Runtime values may also include task handles when task references are
   interpreted.
+- LLM registry callables may produce plain runtime values or generated child
+  programs depending on the calling step semantics.
 
 Downstream usage
 ----------------
@@ -41,14 +43,16 @@ from typing import TypeAlias, Dict, Callable
 from asyncio import Task
 
 from rlm.repl.expressions.expressions import AtomicType
+from rlm.repl.steps.steps import Program
 
 TaskHandle: TypeAlias = Task["StepExecutionResult"]
 RuntimeValue: TypeAlias = (
     AtomicType | list["RuntimeValue"] | dict[str, "RuntimeValue"] | TaskHandle
 )
+LlmResult: TypeAlias = RuntimeValue | Program
 Bindings: TypeAlias = Dict[str, RuntimeValue]
 ToolFunction: TypeAlias = Callable[..., RuntimeValue]
-LlmFunction: TypeAlias = Callable[..., RuntimeValue]
+LlmFunction: TypeAlias = Callable[..., LlmResult]
 ToolRegistry: TypeAlias = Dict[str, ToolFunction]
 LlmRegistry: TypeAlias = Dict[str, LlmFunction]
 TaskRegistry: TypeAlias = Dict[str, TaskHandle]
@@ -160,7 +164,8 @@ class RuntimeState:
     - Stores the current bindings mapping used for reference resolution and
       assignment.
     - Stores the registered tool and LLM callables available to executable step
-      nodes.
+      nodes, including plain LLM-value calls and recursive child-program
+      generators.
     - Stores the active task registry used for first-class concurrency features.
     - Provides a fork operation for constructing isolated child runtime states.
 
