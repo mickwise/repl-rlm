@@ -31,6 +31,14 @@ structural expression validation has already happened before runtime execution.
 from __future__ import annotations
 
 from collections.abc import Mapping
+
+from rlm.repl.errors import (
+    ErrorPhase,
+    RlmErrorCode,
+    RlmRuntimeError,
+    RlmValidationError,
+    translate_exception,
+)
 from rlm.repl.expressions.expressions import (
     Literal,
     Ref,
@@ -45,6 +53,20 @@ from rlm.repl.expressions.expressions import (
     UnaryOperator,
     Expr,
 )
+
+
+def _raise_validation_type_error(message: str) -> None:
+    raise RlmValidationError(
+        code=RlmErrorCode.VALIDATION_TYPE_ERROR,
+        message=message,
+    )
+
+
+def _raise_validation_value_error(message: str) -> None:
+    raise RlmValidationError(
+        code=RlmErrorCode.VALIDATION_VALUE_ERROR,
+        message=message,
+    )
 
 
 def _validate_literal(literal: Literal) -> None:
@@ -72,7 +94,9 @@ def _validate_literal(literal: Literal) -> None:
     - Allowed atomic types are int, float, str, bool, and None.
     """
     if not isinstance(literal.value, (int, float, str, bool, type(None))):
-        raise TypeError("Literal value must be int, float, str, bool, or None.")
+        _raise_validation_type_error(
+            "Literal value must be int, float, str, bool, or None."
+        )
 
 
 def _validate_ref(ref: Ref) -> None:
@@ -102,9 +126,9 @@ def _validate_ref(ref: Ref) -> None:
     - Actual name resolution against runtime bindings is not performed here.
     """
     if not isinstance(ref.name, str):
-        raise TypeError("Reference name must be a string.")
+        _raise_validation_type_error("Reference name must be a string.")
     if not ref.name.strip():
-        raise ValueError("Reference name must be a non-empty string.")
+        _raise_validation_value_error("Reference name must be a non-empty string.")
 
 
 def _validate_task_ref(task_ref: TaskRef) -> None:
@@ -135,9 +159,11 @@ def _validate_task_ref(task_ref: TaskRef) -> None:
       here.
     """
     if not isinstance(task_ref.name, str):
-        raise TypeError("Task reference name must be a string.")
+        _raise_validation_type_error("Task reference name must be a string.")
     if not task_ref.name.strip():
-        raise ValueError("Task reference name must be a non-empty string.")
+        _raise_validation_value_error(
+            "Task reference name must be a non-empty string."
+        )
 
 
 def _validate_object_expr(object_expr: ObjectExpr) -> None:
@@ -169,13 +195,15 @@ def _validate_object_expr(object_expr: ObjectExpr) -> None:
     - Empty objects are allowed.
     """
     if not isinstance(object_expr.fields, Mapping):
-        raise TypeError("ObjectExpr.fields must be a mapping.")
+        _raise_validation_type_error("ObjectExpr.fields must be a mapping.")
 
     for field_name, field_expr in object_expr.fields.items():
         if not isinstance(field_name, str):
-            raise TypeError("ObjectExpr field names must be strings.")
+            _raise_validation_type_error("ObjectExpr field names must be strings.")
         if not field_name.strip():
-            raise ValueError("ObjectExpr field names must be non-empty strings.")
+            _raise_validation_value_error(
+                "ObjectExpr field names must be non-empty strings."
+            )
         validate_expression(field_expr)
 
 
@@ -205,7 +233,7 @@ def _validate_list_expr(list_expr: ListExpr) -> None:
     - Empty lists are allowed.
     """
     if not isinstance(list_expr.values, tuple):
-        raise TypeError("ListExpr.values must be a tuple.")
+        _raise_validation_type_error("ListExpr.values must be a tuple.")
 
     for element_expr in list_expr.values:
         validate_expression(element_expr)
@@ -241,7 +269,7 @@ def _validate_comparison_expr(comparison_expr: ComparisonExpr) -> None:
     validate_expression(comparison_expr.rhs_expr)
 
     if not isinstance(comparison_expr.operator, ComparisonOperator):
-        raise TypeError(
+        _raise_validation_type_error(
             "ComparisonExpr.operator must be a ComparisonOperator."
         )
 
@@ -275,7 +303,9 @@ def _validate_logical_expr(logical_expr: LogicalExpr) -> None:
     validate_expression(logical_expr.rhs_expr)
 
     if not isinstance(logical_expr.operator, LogicalOperator):
-        raise TypeError("LogicalExpr.operator must be a LogicalOperator.")
+        _raise_validation_type_error(
+            "LogicalExpr.operator must be a LogicalOperator."
+        )
 
 
 def _validate_unary_expr(unary_expr: UnaryExpr) -> None:
@@ -307,7 +337,7 @@ def _validate_unary_expr(unary_expr: UnaryExpr) -> None:
     validate_expression(unary_expr.expr)
 
     if not isinstance(unary_expr.operator, UnaryOperator):
-        raise TypeError("UnaryExpr.operator must be a UnaryOperator.")
+        _raise_validation_type_error("UnaryExpr.operator must be a UnaryOperator.")
 
 
 def validate_expression(expr: Expr) -> None:
@@ -337,25 +367,33 @@ def validate_expression(expr: Expr) -> None:
     - This is the public entry point for expression validation.
     - Validation dispatch is performed on concrete AST node classes.
     """
-    match expr:
-        case Literal():
-            _validate_literal(expr)
-        case Ref():
-            _validate_ref(expr)
-        case TaskRef():
-            _validate_task_ref(expr)
-        case ObjectExpr():
-            _validate_object_expr(expr)
-        case ListExpr():
-            _validate_list_expr(expr)
-        case ComparisonExpr():
-            _validate_comparison_expr(expr)
-        case LogicalExpr():
-            _validate_logical_expr(expr)
-        case UnaryExpr():
-            _validate_unary_expr(expr)
-        case _:
-            raise TypeError(
-                f"Unsupported expression node for validation: "
-                f"{type(expr).__name__}"
-            )
+    try:
+        match expr:
+            case Literal():
+                _validate_literal(expr)
+            case Ref():
+                _validate_ref(expr)
+            case TaskRef():
+                _validate_task_ref(expr)
+            case ObjectExpr():
+                _validate_object_expr(expr)
+            case ListExpr():
+                _validate_list_expr(expr)
+            case ComparisonExpr():
+                _validate_comparison_expr(expr)
+            case LogicalExpr():
+                _validate_logical_expr(expr)
+            case UnaryExpr():
+                _validate_unary_expr(expr)
+            case _:
+                raise RlmValidationError(
+                    code=RlmErrorCode.UNSUPPORTED_EXPRESSION_NODE,
+                    message=(
+                        "Unsupported expression node for validation: "
+                        f"{type(expr).__name__}"
+                    ),
+                )
+    except Exception as error:
+        if isinstance(error, RlmRuntimeError):
+            raise
+        raise translate_exception(error, ErrorPhase.VALIDATION) from error

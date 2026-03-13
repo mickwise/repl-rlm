@@ -48,6 +48,13 @@ from rlm.repl.expressions.expressions import (
     Expr,
     AtomicType,
 )
+from rlm.repl.errors import (
+    ErrorPhase,
+    RlmErrorCode,
+    RlmExecutionError,
+    RlmRuntimeError,
+    translate_exception,
+)
 from rlm.repl.runtime.runtime_state import RuntimeState, RuntimeValue
 
 
@@ -101,7 +108,14 @@ def _interpret_ref(ref: Ref, runtime_state: RuntimeState) -> RuntimeValue:
     -----
     - Reference lookup is a runtime concern and depends on current bindings.
     """
-    return runtime_state.bindings[ref.name]
+    try:
+        return runtime_state.bindings[ref.name]
+    except KeyError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.UNBOUND_REFERENCE,
+            message=f"Unbound reference: {ref.name}",
+            cause=error,
+        ) from error
 
 
 def _interpret_task_ref(
@@ -133,7 +147,14 @@ def _interpret_task_ref(
     - Task-reference lookup is a runtime concern and depends on current task
       registry content.
     """
-    return runtime_state.task_registry[task_ref.name]
+    try:
+        return runtime_state.task_registry[task_ref.name]
+    except KeyError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.UNBOUND_TASK_REFERENCE,
+            message=f"Unbound task reference: {task_ref.name}",
+            cause=error,
+        ) from error
 
 
 def _interpret_object_expr(
@@ -261,7 +282,10 @@ def _interpret_comparison_expr(
         case ComparisonOperator.NOT_EQUAL:
             return lhs != rhs
         case _:
-            raise ValueError(f"Unsupported comparison operator: {operator}")
+            raise RlmExecutionError(
+                code=RlmErrorCode.UNSUPPORTED_OPERATOR,
+                message=f"Unsupported comparison operator: {operator}",
+            )
 
 
 def _interpret_logical_expr(
@@ -311,7 +335,10 @@ def _interpret_logical_expr(
         case LogicalOperator.OR:
             return bool(lhs) or bool(rhs)
         case _:
-            raise ValueError(f"Unsupported logical operator: {operator}")
+            raise RlmExecutionError(
+                code=RlmErrorCode.UNSUPPORTED_OPERATOR,
+                message=f"Unsupported logical operator: {operator}",
+            )
 
 
 def _interpret_unary_expr(
@@ -356,10 +383,13 @@ def _interpret_unary_expr(
         case UnaryOperator.NOT:
             return not interpreted_expr
         case _:
-            raise ValueError(f"Unsupported unary operator: {operator}")
+            raise RlmExecutionError(
+                code=RlmErrorCode.UNSUPPORTED_OPERATOR,
+                message=f"Unsupported unary operator: {operator}",
+            )
 
 
-def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValue: # type: ignore
+def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValue:  # type: ignore
     """
     Interpret a general AST expression node into a concrete runtime value.
 
@@ -390,24 +420,30 @@ def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValu
     - This function is the public entry point for expression interpretation.
     - Dispatch is performed on concrete AST node classes.
     """
-    match expr:
-        case Literal():
-            return _interpret_literal(expr)
-        case Ref():
-            return _interpret_ref(expr, runtime_state)
-        case TaskRef():
-            return _interpret_task_ref(expr, runtime_state)
-        case ObjectExpr():
-            return _interpret_object_expr(expr, runtime_state)
-        case ListExpr():
-            return _interpret_list_expr(expr, runtime_state)
-        case ComparisonExpr():
-            return _interpret_comparison_expr(expr, runtime_state)
-        case LogicalExpr():
-            return _interpret_logical_expr(expr, runtime_state)
-        case UnaryExpr():
-            return _interpret_unary_expr(expr, runtime_state)
-        case _:
-            raise ValueError(
-                f"Unsupported expression node: {type(expr).__name__}"
-            )
+    try:
+        match expr:
+            case Literal():
+                return _interpret_literal(expr)
+            case Ref():
+                return _interpret_ref(expr, runtime_state)
+            case TaskRef():
+                return _interpret_task_ref(expr, runtime_state)
+            case ObjectExpr():
+                return _interpret_object_expr(expr, runtime_state)
+            case ListExpr():
+                return _interpret_list_expr(expr, runtime_state)
+            case ComparisonExpr():
+                return _interpret_comparison_expr(expr, runtime_state)
+            case LogicalExpr():
+                return _interpret_logical_expr(expr, runtime_state)
+            case UnaryExpr():
+                return _interpret_unary_expr(expr, runtime_state)
+            case _:
+                raise RlmExecutionError(
+                    code=RlmErrorCode.UNSUPPORTED_EXPRESSION_NODE,
+                    message=f"Unsupported expression node: {type(expr).__name__}",
+                )
+    except Exception as error:
+        if isinstance(error, RlmRuntimeError):
+            raise
+        raise translate_exception(error, ErrorPhase.EXECUTION) from error

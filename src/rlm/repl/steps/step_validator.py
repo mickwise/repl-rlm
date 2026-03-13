@@ -34,19 +34,40 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from rlm.repl.errors import (
+    ErrorPhase,
+    RlmErrorCode,
+    RlmRuntimeError,
+    RlmValidationError,
+    translate_exception,
+)
 from rlm.repl.expressions.expression_validator import validate_expression
 from rlm.repl.steps.steps import (
-    ToolCallStep,
-    IfStep,
-    ForEachStep,
-    ReturnStep,
-    LlmCallStep,
     AssignmentStep,
-    SpawnStep,
+    ForEachStep,
+    IfStep,
     JoinStep,
-    Step,
+    LlmCallStep,
     Program,
+    ReturnStep,
+    SpawnStep,
+    Step,
+    ToolCallStep,
 )
+
+
+def _raise_validation_type_error(message: str) -> None:
+    raise RlmValidationError(
+        code=RlmErrorCode.VALIDATION_TYPE_ERROR,
+        message=message,
+    )
+
+
+def _raise_validation_value_error(message: str) -> None:
+    raise RlmValidationError(
+        code=RlmErrorCode.VALIDATION_VALUE_ERROR,
+        message=message,
+    )
 
 
 def _validate_non_empty_string(value: object, field_name: str) -> None:
@@ -78,9 +99,9 @@ def _validate_non_empty_string(value: object, field_name: str) -> None:
       nodes.
     """
     if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be a string.")
+        _raise_validation_type_error(f"{field_name} must be a string.")
     if not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty string.")
+        _raise_validation_value_error(f"{field_name} must be a non-empty string.")
 
 
 def _validate_step_tuple(steps: object, field_name: str) -> None:
@@ -111,7 +132,7 @@ def _validate_step_tuple(steps: object, field_name: str) -> None:
     - Empty tuples are allowed.
     """
     if not isinstance(steps, tuple):
-        raise TypeError(f"{field_name} must be a tuple of steps.")
+        _raise_validation_type_error(f"{field_name} must be a tuple of steps.")
 
     for step in steps:
         validate_step(step)
@@ -213,10 +234,7 @@ def _validate_for_each_step(step: ForEachStep) -> None:
     - Body steps are recursively validated through the step validator.
     """
     validate_expression(step.iterable_expr)
-    _validate_non_empty_string(
-        step.loop_var_name,
-        "ForEachStep.loop_var_name",
-    )
+    _validate_non_empty_string(step.loop_var_name, "ForEachStep.loop_var_name")
     _validate_step_tuple(step.body_steps, "ForEachStep.body_steps")
 
 
@@ -276,10 +294,7 @@ def _validate_llm_call_step(step: LlmCallStep) -> None:
     - If `step.binding_target` is provided, it is validated as a non-empty
       string.
     """
-    _validate_non_empty_string(
-        step.baml_func_name,
-        "LlmCallStep.baml_func_name",
-    )
+    _validate_non_empty_string(step.baml_func_name, "LlmCallStep.baml_func_name")
 
     if step.args is not None:
         validate_expression(step.args)
@@ -315,10 +330,7 @@ def _validate_assignment_step(step: AssignmentStep) -> None:
     - Binding-target name resolution is not performed here.
     """
     validate_expression(step.value_expr)
-    _validate_non_empty_string(
-        step.binding_target,
-        "AssignmentStep.binding_target",
-    )
+    _validate_non_empty_string(step.binding_target, "AssignmentStep.binding_target")
 
 
 def _validate_spawn_step(step: SpawnStep) -> None:
@@ -385,7 +397,7 @@ def _validate_join_step(step: JoinStep) -> None:
       referenced tasks exist at runtime.
     """
     if not isinstance(step.tasks_ref, tuple):
-        raise TypeError("JoinStep.tasks_ref must be a tuple.")
+        _raise_validation_type_error("JoinStep.tasks_ref must be a tuple.")
     for task_ref in step.tasks_ref:
         validate_expression(task_ref)
     if step.binding_target:
@@ -421,27 +433,36 @@ def validate_step(step: Step) -> None:
     - Spawn and join steps are validated as structural concurrency constructs,
       including spawned sub-program shape and join-task reference containers.
     """
-    match step:
-        case ToolCallStep():
-            _validate_tool_call_step(step)
-        case IfStep():
-            _validate_if_step(step)
-        case ForEachStep():
-            _validate_for_each_step(step)
-        case ReturnStep():
-            _validate_return_step(step)
-        case LlmCallStep():
-            _validate_llm_call_step(step)
-        case AssignmentStep():
-            _validate_assignment_step(step)
-        case SpawnStep():
-            _validate_spawn_step(step)
-        case JoinStep():
-            _validate_join_step(step)
-        case _:
-            raise TypeError(
-                f"Unsupported step node for validation: {type(step).__name__}"
-            )
+    try:
+        match step:
+            case ToolCallStep():
+                _validate_tool_call_step(step)
+            case IfStep():
+                _validate_if_step(step)
+            case ForEachStep():
+                _validate_for_each_step(step)
+            case ReturnStep():
+                _validate_return_step(step)
+            case LlmCallStep():
+                _validate_llm_call_step(step)
+            case AssignmentStep():
+                _validate_assignment_step(step)
+            case SpawnStep():
+                _validate_spawn_step(step)
+            case JoinStep():
+                _validate_join_step(step)
+            case _:
+                raise RlmValidationError(
+                    code=RlmErrorCode.UNSUPPORTED_STEP_NODE,
+                    message=(
+                        "Unsupported step node for validation: "
+                        f"{type(step).__name__}"
+                    ),
+                )
+    except Exception as error:
+        if isinstance(error, RlmRuntimeError):
+            raise
+        raise translate_exception(error, ErrorPhase.VALIDATION) from error
 
 
 def validate_program(program: Program) -> None:
@@ -471,7 +492,12 @@ def validate_program(program: Program) -> None:
     - Program-step validation is delegated to the step validator.
     - Metadata is validated only as a mapping container at this layer.
     """
-    _validate_step_tuple(program.steps, "Program.steps")
+    try:
+        _validate_step_tuple(program.steps, "Program.steps")
 
-    if not isinstance(program.metadata, Mapping):
-        raise TypeError("Program.metadata must be a mapping.")
+        if not isinstance(program.metadata, Mapping):
+            _raise_validation_type_error("Program.metadata must be a mapping.")
+    except Exception as error:
+        if isinstance(error, RlmRuntimeError):
+            raise
+        raise translate_exception(error, ErrorPhase.VALIDATION) from error

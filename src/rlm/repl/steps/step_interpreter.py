@@ -38,29 +38,36 @@ sub-program task handles.
 """
 from __future__ import annotations
 
-from inspect import isawaitable
-from typing import Tuple, Dict, List
 import asyncio
+from inspect import isawaitable
+from typing import List, Tuple
 
-from rlm.repl.expressions.expression_interpreter import interpret_expression
-from rlm.repl.steps.steps import (
-    ToolCallStep,
-    IfStep,
-    ForEachStep,
-    ReturnStep,
-    LlmCallStep,
-    AssignmentStep,
-    SpawnStep,
-    JoinStep,
-    Step,
+from rlm.repl.errors import (
+    ErrorPhase,
+    RlmErrorCode,
+    RlmExecutionError,
+    RlmRuntimeError,
+    translate_exception,
 )
+from rlm.repl.expressions.expression_interpreter import interpret_expression
 from rlm.repl.runtime.runtime_state import (
+    LlmFunction,
     RuntimeState,
     RuntimeValue,
     StepExecutionResult,
+    TaskHandle,
     ToolFunction,
-    LlmFunction,
-    TaskHandle
+)
+from rlm.repl.steps.steps import (
+    AssignmentStep,
+    ForEachStep,
+    IfStep,
+    JoinStep,
+    LlmCallStep,
+    ReturnStep,
+    SpawnStep,
+    Step,
+    ToolCallStep,
 )
 
 
@@ -101,15 +108,39 @@ async def _interpret_tool_call_step(
     - If `step.binding_target` is set, the final tool result is stored under
       that binding name in `runtime_state.bindings`.
     """
-    tool_callable: ToolFunction = runtime_state.tool_registry[step.tool_name]
-    kwargs: Dict[str, RuntimeValue] = (
+    try:
+        tool_callable: ToolFunction = runtime_state.tool_registry[step.tool_name]
+    except KeyError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.REGISTRY_LOOKUP_ERROR,
+            message=f"Tool not found in registry: {step.tool_name}",
+            cause=error,
+        ) from error
+
+    kwargs: RuntimeValue = (
         interpret_expression(step.args, runtime_state) if step.args is not None else {}
     )
-    tool_result: RuntimeValue = tool_callable(**kwargs)
+    if not isinstance(kwargs, dict):
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_CALL_OPERATION,
+            message="Tool call arguments must evaluate to an object/dict.",
+        )
+
+    try:
+        tool_result: RuntimeValue = tool_callable(**kwargs)
+    except TypeError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_CALL_OPERATION,
+            message=f"Invalid tool call arguments for: {step.tool_name}",
+            cause=error,
+        ) from error
+
     if isawaitable(tool_result):
         tool_result = await tool_result
+
     if step.binding_target:
         runtime_state.bindings[step.binding_target] = tool_result
+
     return StepExecutionResult.normal()
 
 
@@ -148,7 +179,9 @@ async def _interpret_if_step(
     - Branch execution is delegated to the step-sequence interpreter.
     """
     condition_value: RuntimeValue = interpret_expression(step.condition, runtime_state)
-    selected_steps: Tuple[Step, ...] = step.then_steps if condition_value else step.else_steps
+    selected_steps: Tuple[Step, ...] = (
+        step.then_steps if condition_value else step.else_steps
+    )
     return await interpret_step_tuple(selected_steps, runtime_state)
 
 
@@ -192,9 +225,21 @@ async def _interpret_for_each_step(
     """
     iterable_value: RuntimeValue = interpret_expression(step.iterable_expr, runtime_state)
 
-    for item in iterable_value:
+    try:
+        iterator = iter(iterable_value)
+    except TypeError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_ITERATION_OPERATION,
+            message="Foreach iterable expression did not produce an iterable value.",
+            cause=error,
+        ) from error
+
+    for item in iterator:
         runtime_state.bindings[step.loop_var_name] = item
-        result: StepExecutionResult = await interpret_step_tuple(step.body_steps, runtime_state)
+        result: StepExecutionResult = await interpret_step_tuple(
+            step.body_steps,
+            runtime_state,
+        )
         if result.did_return:
             return result
 
@@ -273,15 +318,39 @@ async def _interpret_llm_call_step(
     - If `step.binding_target` is set, the final LLM-call result is stored
       under that binding name in `runtime_state.bindings`.
     """
-    llm_callable: LlmFunction = runtime_state.llm_registry[step.baml_func_name]
-    kwargs: Dict[str, RuntimeValue] = (
+    try:
+        llm_callable: LlmFunction = runtime_state.llm_registry[step.baml_func_name]
+    except KeyError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.REGISTRY_LOOKUP_ERROR,
+            message=f"LLM function not found in registry: {step.baml_func_name}",
+            cause=error,
+        ) from error
+
+    kwargs: RuntimeValue = (
         interpret_expression(step.args, runtime_state) if step.args is not None else {}
     )
-    llm_result: RuntimeValue = llm_callable(**kwargs)
+    if not isinstance(kwargs, dict):
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_CALL_OPERATION,
+            message="LLM call arguments must evaluate to an object/dict.",
+        )
+
+    try:
+        llm_result: RuntimeValue = llm_callable(**kwargs)
+    except TypeError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_CALL_OPERATION,
+            message=f"Invalid LLM call arguments for: {step.baml_func_name}",
+            cause=error,
+        ) from error
+
     if isawaitable(llm_result):
         llm_result = await llm_result
+
     if step.binding_target:
         runtime_state.bindings[step.binding_target] = llm_result
+
     return StepExecutionResult.normal()
 
 
@@ -355,16 +424,24 @@ def _interpret_spawn_step(
       runtime state created via `runtime_state.fork_child()`.
     - The created task handle is stored in `runtime_state.task_registry` under
       `step.binding_target`.
-    - Spawn does not wait for task completion; synchronization is delegated to
+    - Spawn does not wait for task completion, synchronization is delegated to
       join steps.
     """
-    runtime_state.task_registry[step.binding_target] = asyncio.create_task(
-        interpret_step_tuple(
-            steps=step.sub_program.steps,
-            runtime_state=runtime_state.fork_child(),
-        ),
-        name=step.binding_target,
-    )
+    try:
+        runtime_state.task_registry[step.binding_target] = asyncio.create_task(
+            interpret_step_tuple(
+                steps=step.sub_program.steps,
+                runtime_state=runtime_state.fork_child(),
+            ),
+            name=step.binding_target,
+        )
+    except RuntimeError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.TASK_SPAWN_ERROR,
+            message=f"Failed to spawn task: {step.binding_target}",
+            cause=error,
+        ) from error
+
     return StepExecutionResult.normal()
 
 
@@ -405,14 +482,37 @@ async def _interpret_join_step(
     - If `step.binding_target` is set, the join result stores a list of joined
       sub-program return values in `runtime_state.bindings`.
     """
-    tasks: List[TaskHandle] = [
-        interpret_expression(task_ref, runtime_state) for task_ref in step.tasks_ref
-    ]
-    results: List[StepExecutionResult] = await asyncio.gather(*tasks)
+    tasks: List[TaskHandle] = []
+
+    for task_ref in step.tasks_ref:
+        task_handle: RuntimeValue = interpret_expression(task_ref, runtime_state)
+        if not isinstance(task_handle, asyncio.Task):
+            raise RlmExecutionError(
+                code=RlmErrorCode.INVALID_CALL_OPERATION,
+                message="Join step task references must resolve to task handles.",
+            )
+        tasks.append(task_handle)
+
+    try:
+        results: List[StepExecutionResult] = await asyncio.gather(*tasks)
+    except asyncio.CancelledError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.TASK_JOIN_ERROR,
+            message="Task join was cancelled.",
+            cause=error,
+        ) from error
+    except RuntimeError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.TASK_JOIN_ERROR,
+            message="Task join failed due to runtime task scheduling error.",
+            cause=error,
+        ) from error
+
     if step.binding_target:
         runtime_state.bindings[step.binding_target] = [
             result.return_value for result in results
         ]
+
     return StepExecutionResult.normal()
 
 
@@ -452,25 +552,33 @@ async def interpret_step(
     - Spawn steps register background sub-program tasks, and join steps await
       them and optionally bind their collected return values.
     """
-    match step:
-        case ToolCallStep():
-            return await _interpret_tool_call_step(step, runtime_state)
-        case IfStep():
-            return await _interpret_if_step(step, runtime_state)
-        case ForEachStep():
-            return await _interpret_for_each_step(step, runtime_state)
-        case ReturnStep():
-            return _interpret_return_step(step, runtime_state)
-        case LlmCallStep():
-            return await _interpret_llm_call_step(step, runtime_state)
-        case AssignmentStep():
-            return _interpret_assignment_step(step, runtime_state)
-        case SpawnStep():
-            return _interpret_spawn_step(step, runtime_state)
-        case JoinStep():
-            return await _interpret_join_step(step, runtime_state)
-        case _:
-            raise ValueError(f"Unsupported step node: {type(step).__name__}")
+    try:
+        match step:
+            case ToolCallStep():
+                return await _interpret_tool_call_step(step, runtime_state)
+            case IfStep():
+                return await _interpret_if_step(step, runtime_state)
+            case ForEachStep():
+                return await _interpret_for_each_step(step, runtime_state)
+            case ReturnStep():
+                return _interpret_return_step(step, runtime_state)
+            case LlmCallStep():
+                return await _interpret_llm_call_step(step, runtime_state)
+            case AssignmentStep():
+                return _interpret_assignment_step(step, runtime_state)
+            case SpawnStep():
+                return _interpret_spawn_step(step, runtime_state)
+            case JoinStep():
+                return await _interpret_join_step(step, runtime_state)
+            case _:
+                raise RlmExecutionError(
+                    code=RlmErrorCode.UNSUPPORTED_STEP_NODE,
+                    message=f"Unsupported step node: {type(step).__name__}",
+                )
+    except Exception as error:
+        if isinstance(error, RlmRuntimeError):
+            raise
+        raise translate_exception(error, ErrorPhase.EXECUTION) from error
 
 
 async def interpret_step_tuple(
@@ -513,9 +621,14 @@ async def interpret_step_tuple(
     - A spawned sub-program that returns will surface that return through its
       task result rather than directly through the parent sequence.
     """
-    for step in steps:
-        result = await interpret_step(step, runtime_state)
-        if result.did_return:
-            return result
+    try:
+        for step in steps:
+            result = await interpret_step(step, runtime_state)
+            if result.did_return:
+                return result
 
-    return StepExecutionResult.normal()
+        return StepExecutionResult.normal()
+    except Exception as error:
+        if isinstance(error, RlmRuntimeError):
+            raise
+        raise translate_exception(error, ErrorPhase.EXECUTION) from error
