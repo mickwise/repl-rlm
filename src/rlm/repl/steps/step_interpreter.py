@@ -394,8 +394,8 @@ async def _interpret_recursive_call_step(
       and passed as keyword arguments to the LLM callable.
     - The LLM callable is expected to return a `Program` object, directly or
       via an awaitable.
-    - Child execution occurs against `runtime_state.fork_child()` so child
-      rebinding does not mutate the parent's bindings dictionary.
+    - Child execution occurs against a recursion-budget-aware forked runtime so
+      child rebinding does not mutate the parent's bindings dictionary.
     - If `step.binding_target` is set, the child-program return value is stored
       under that binding name in `runtime_state.bindings`.
     """
@@ -446,7 +446,7 @@ async def _interpret_recursive_call_step(
 
     validate_program(child_program_result)
 
-    child_runtime_state = runtime_state.fork_child()
+    child_runtime_state = runtime_state.register_recursive_call_and_fork_child()
     child_result = await interpret_step_tuple(
         steps=child_program_result.steps,
         runtime_state=child_runtime_state,

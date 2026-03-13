@@ -131,6 +131,12 @@ class RlmErrorCode(str, Enum):
     TASK_JOIN_ERROR : RlmErrorCode
         Execution failed while awaiting or collecting one or more spawned
         tasks.
+    RECURSION_DEPTH_EXCEEDED : RlmErrorCode
+        Execution failed because a recursive child-program call would exceed
+        the configured maximum recursion depth.
+    RECURSION_CALL_LIMIT_EXCEEDED : RlmErrorCode
+        Execution failed because a recursive child-program call would exceed
+        the configured maximum recursive-call count.
     INTERNAL_ERROR : RlmErrorCode
         An unexpected internal runtime failure occurred that does not fit a
         more specific native category.
@@ -156,6 +162,8 @@ class RlmErrorCode(str, Enum):
     INVALID_CALL_OPERATION = "invalid_call_operation"
     TASK_SPAWN_ERROR = "task_spawn_error"
     TASK_JOIN_ERROR = "task_join_error"
+    RECURSION_DEPTH_EXCEEDED = "recursion_depth_exceeded"
+    RECURSION_CALL_LIMIT_EXCEEDED = "recursion_call_limit_exceeded"
     INTERNAL_ERROR = "internal_error"
 
 
