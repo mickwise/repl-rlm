@@ -1,0 +1,351 @@
+Metadata-Version: 2.4
+Name: repl-rlm
+Version: 0.1.0
+Summary: A programmable REPL runtime for recursive LLM execution, typed AST validation, and bounded subprogram orchestration.
+Author: Dor Fuchs
+License: MIT
+Requires-Python: >=3.14
+Description-Content-Type: text/markdown
+Requires-Dist: baml-py>=0.220.0
+Requires-Dist: pytest>=9.0.2
+Provides-Extra: dev
+Requires-Dist: pytest>=8.4.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=1.1.0; extra == "dev"
+Requires-Dist: ruff>=0.12.0; extra == "dev"
+
+# repl-rlm
+
+`repl-rlm` is a framework for building Recursive Language Model systems that
+treat long context as an environment to operate over rather than a prompt to
+stuff into a transformer window.
+
+The point of the system is not merely to hold more tokens. The point is to let
+an agent programmatically inspect, decompose, recurse over, and aggregate work
+across corpora that are too large, too structured, or too evidence-heavy for
+naive prompting.
+
+This project is inspired by
+[Recursive Language Models](https://arxiv.org/abs/2512.24601v2) and pushes in
+that general direction: prompt-as-environment, symbolic execution, recursive
+subcalls, and explicit program state.
+
+## Core Idea
+
+The central bet behind `repl-rlm` is:
+
+- long context should live in the environment
+- the model should receive handles, metadata, and tools for working on it
+- the model should write executable decompositions rather than only prose
+- recursive calls should be programmatic, not just verbally delegated
+- independent subproblems should be able to run concurrently
+
+In this view, an agent is not just "a model with a lot of retrieved text." It
+is a system that can write and execute programs over a live problem space.
+
+## What This System Is For
+
+`repl-rlm` is meant for tasks where the relevant information is distributed
+across large or complex contexts and where the work requires explicit
+decomposition.
+
+Examples:
+
+- answering threaded questions across a long fantasy series
+- tracing evidence across scripture, legal records, or archival corpora
+- understanding large code repositories
+- adjudicating contested claims against primary-source document collections
+
+For a contested-claim task, the goal is not to produce the most plausible
+sounding answer from a compressed summary. The goal is to inspect the corpus,
+partition the work, compare evidence, preserve provenance, and return a
+grounded answer with explicit uncertainty when appropriate.
+
+## Why This Instead of Prompt Stuffing or Pure RAG
+
+### Prompt stuffing breaks down
+
+If the entire problem must live inside one context window:
+
+- cost grows with every repeated token
+- performance often degrades as the prompt expands
+- intermediate reasoning competes with source material for space
+- the decomposition logic itself has nowhere structured to live
+
+In `repl-rlm`, the context lives outside the model window. The model interacts
+with it through variables, tools, observations, and recursive programs.
+
+### Retrieval is necessary but not sufficient
+
+Retrieval is useful, but many tasks require more than finding a few relevant
+chunks. Some tasks need:
+
+- broad aggregation over most of a corpus
+- pairwise or hierarchical comparison
+- iterative filtering and refinement
+- exact evidence tracking
+- repeated passes over transformed intermediate results
+
+In `repl-rlm`, retrieval is a tool inside a larger computational architecture,
+not the architecture itself.
+
+## What "Recursive" Means Here
+
+The important distinction is not merely that the model can call itself.
+
+The important distinction is that recursion can happen inside executable
+programs over symbolic state:
+
+1. the long prompt or corpus lives in the environment
+2. intermediate state also lives in the environment
+3. code can construct subproblems programmatically
+4. those subproblems can invoke the model again
+5. recursive work can be combined with loops, conditionals, and concurrency
+
+That is what makes the system fundamentally different from a large prompt plus
+occasional sub-agent delegation.
+
+## System Architecture
+
+The intended architecture of `repl-rlm` has several layers.
+
+### 1. Planner layer
+
+The planner decides what to do next:
+
+- run a program
+- ask for clarification
+- return a final answer
+
+The planner should reason in terms of program emission, not only natural
+language output.
+
+### 2. REPL runtime layer
+
+The runtime is the execution engine for symbolic programs.
+
+It is responsible for:
+
+- maintaining bindings and runtime state
+- validating AST structure before execution
+- evaluating expressions
+- executing tool calls and model-backed steps
+- supporting recursion
+- supporting spawn/join style concurrency
+- surfacing stable runtime and validation errors
+
+### 3. Environment layer
+
+The environment holds the actual problem material and operating context:
+
+- long prompts
+- corpora
+- document stores
+- retrieval indices
+- file systems
+- tool outputs
+- intermediate derived artifacts
+
+The environment is where context lives.
+
+### 4. Adapter layer
+
+Adapters connect the runtime to concrete execution backends:
+
+- model providers
+- local inference engines
+- tool registries
+- retrieval systems
+- corpora and storage layers
+
+This is where components such as a vLLM adapter belong.
+
+### 5. Evaluation layer
+
+The evaluation layer runs the system against benchmark suites and real tasks,
+tracking:
+
+- quality
+- latency
+- token and API cost
+- recursion depth
+- evidence quality
+- trajectory characteristics
+
+### 6. Training layer
+
+The training layer turns successful trajectories into model improvements:
+
+- collect trajectories
+- filter them for quality and groundedness
+- fine-tune models to use the REPL and recursive scaffold more effectively
+- release adapters or weights for specialized RLM-capable models
+
+## Repository Shape
+
+The intended package shape is:
+
+```text
+src/
+  repl_rlm/
+    repl/
+      ...
+    adapters/
+      ...
+    benchmarks/
+      ...
+    training/
+      ...
+    weights/
+      ...
+```
+
+The `repl_rlm.repl` package is the core execution engine. Other packages live
+alongside it as the project grows.
+
+The exact package boundaries may evolve, but the high-level separation is
+important:
+
+- `repl_rlm.repl` is the symbolic runtime
+- `repl_rlm.adapters` is backend and tool integration
+- `repl_rlm.benchmarks` is measurement and evaluation
+- `repl_rlm.training` is trajectory generation and fine-tuning
+- `repl_rlm.weights` is a natural home for model-release metadata or helpers
+
+## Runtime Model
+
+The execution model is based on typed programs rather than free-form agent
+messages.
+
+At the core are:
+
+- expression nodes
+- step nodes
+- a runtime state object
+- validation before execution
+- deterministic and model-backed actions
+- recursive child-program calls
+- concurrent subprogram execution
+- translated machine-readable failures
+
+The planner emits programs. The runtime executes them. The environment stores
+the long context and the evolving working state.
+
+## Planning Contract
+
+The root planning contract is designed around one turn of controller behavior:
+
+- emit a program
+- ask for clarification
+- answer finally
+
+That contract is meant to stay stable even as task-specific adapters, tools,
+benchmarks, and training pipelines evolve around it.
+
+## Benchmark Philosophy
+
+`repl-rlm` should be evaluated on tasks that stress different kinds of long
+context reasoning, not just simple retrieval.
+
+Important benchmark categories include:
+
+- constant-information retrieval-style tasks
+- broad aggregation tasks
+- pairwise interaction tasks
+- repository-scale understanding tasks
+- evidence-synthesis tasks over large document sets
+
+The benchmark philosophy is simple:
+
+- do not treat "long context" as a single problem
+- evaluate both quality and cost
+- inspect trajectories, not only final answers
+- compare against direct prompting, retrieval-heavy baselines, and compaction
+  baselines
+
+## Training Philosophy
+
+`repl-rlm` is also intended to support models that are specifically trained to
+use this environment well.
+
+The goal is not merely "better reasoning" in the abstract. The goal is better
+use of:
+
+- symbolic decomposition
+- recursive calls
+- explicit variables
+- evidence-preserving transformations
+- asynchronous subproblem handling
+- bounded, inspectable agent trajectories
+
+Over time, the system should make it possible to collect high-quality
+trajectories, fine-tune models on those trajectories, and publish models or
+adapters specialized for this execution style.
+
+## Minimal Example
+
+The core runtime is designed to be directly executable from Python.
+
+```python
+import asyncio
+
+from repl_rlm.repl.expressions.expressions import Literal
+from repl_rlm.repl.runtime.runtime import create_runtime_state, execute_program
+from repl_rlm.repl.steps.steps import Program, ReturnStep
+
+
+async def main() -> None:
+    program = Program(
+        steps=(
+            ReturnStep(value_expr=Literal(value="hello from repl-rlm")),
+        ),
+        metadata={},
+    )
+
+    runtime_state = create_runtime_state(
+        tool_registry={},
+        llm_registry={},
+    )
+
+    result = await execute_program(program=program, runtime_state=runtime_state)
+    print(result.return_value)
+
+
+asyncio.run(main())
+```
+
+The interesting use of the system begins when the runtime is paired with model
+adapters, tool registries, large corpora, and benchmark harnesses.
+
+## Design Principles
+
+`repl-rlm` is guided by a few principles:
+
+1. Context belongs in the environment.
+2. Decomposition should be programmatic.
+3. Retrieval is a tool, not the full architecture.
+4. Evidence should remain inspectable.
+5. Async structure should be available when the task warrants it.
+6. The runtime core should remain clean and composable.
+
+## Work In Progress
+
+`repl-rlm` is an active work in progress. The architecture is more important
+than any temporary snapshot of files, and some package boundaries, adapters,
+and workflows will evolve as benchmarking, training, and deployment take shape.
+
+The guiding goal is stable:
+
+build a system for long-context agents that is more programmatic, inspectable,
+and scalable than either prompt stuffing or retrieval-only approaches.
+
+## Development Notes
+
+- Python requirement: `>=3.14`
+- Packaging: setuptools with `src/` layout
+- Top-level namespace: `repl_rlm`
+- Core runtime package: `repl_rlm.repl`
+- License direction: MIT
+
+## License
+
+This repository is intended to remain under the MIT license.
