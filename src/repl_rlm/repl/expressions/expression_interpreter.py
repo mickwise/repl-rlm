@@ -453,10 +453,7 @@ def _interpret_field_access_expr(
     if not isinstance(base_value, Mapping):
         raise RlmExecutionError(
             code=RlmErrorCode.INVALID_FIELD_ACCESS,
-            message=(
-                "Field access base expression must evaluate to a mapping-like "
-                "value."
-            ),
+            message=("Field access base expression must evaluate to a mapping-like value."),
         )
 
     try:

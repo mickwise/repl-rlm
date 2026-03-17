@@ -131,9 +131,7 @@ async def test_interpret_step_executes_llm_calls_and_binds_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_interpret_step_executes_recursive_child_programs_isolates_bindings() -> (
-    None
-):
+async def test_interpret_step_executes_recursive_child_programs_isolates_bindings() -> None:
     """
     Execute a recursive child program and bind only its return value in parent state.
 

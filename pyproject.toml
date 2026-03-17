@@ -14,12 +14,11 @@ authors = [
 ]
 dependencies = [
     "baml-py>=0.220.0",
-    "pytest>=9.0.2",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.4.0",
+    "pytest>=9.0.2",
     "pytest-asyncio>=1.1.0",
     "ruff>=0.12.0",
 ]

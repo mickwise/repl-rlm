@@ -99,9 +99,7 @@ def _validate_literal(literal: Literal) -> None:
     - Allowed atomic types are int, float, str, bool, and None.
     """
     if not isinstance(literal.value, (int, float, str, bool, type(None))):
-        _raise_validation_type_error(
-            "Literal value must be int, float, str, bool, or None."
-        )
+        _raise_validation_type_error("Literal value must be int, float, str, bool, or None.")
 
 
 def _validate_ref(ref: Ref) -> None:
@@ -204,9 +202,7 @@ def _validate_object_expr(object_expr: ObjectExpr) -> None:
         if not isinstance(field_name, str):
             _raise_validation_type_error("ObjectExpr field names must be strings.")
         if not field_name.strip():
-            _raise_validation_value_error(
-                "ObjectExpr field names must be non-empty strings."
-            )
+            _raise_validation_value_error("ObjectExpr field names must be non-empty strings.")
         validate_expression(field_expr)
 
 
@@ -272,9 +268,7 @@ def _validate_comparison_expr(comparison_expr: ComparisonExpr) -> None:
     validate_expression(comparison_expr.rhs_expr)
 
     if not isinstance(comparison_expr.operator, ComparisonOperator):
-        _raise_validation_type_error(
-            "ComparisonExpr.operator must be a ComparisonOperator."
-        )
+        _raise_validation_type_error("ComparisonExpr.operator must be a ComparisonOperator.")
 
 
 def _validate_logical_expr(logical_expr: LogicalExpr) -> None:
@@ -339,9 +333,7 @@ def _validate_algebraic_expr(algebraic_expr: AlgebraicExpr) -> None:
     validate_expression(algebraic_expr.rhs_expr)
 
     if not isinstance(algebraic_expr.operator, AlgebraicOperator):
-        _raise_validation_type_error(
-            "AlgebraicExpr.operator must be an AlgebraicOperator."
-        )
+        _raise_validation_type_error("AlgebraicExpr.operator must be an AlgebraicOperator.")
 
 
 def _validate_field_access_expr(field_access_expr: FieldAccessExpr) -> None:
@@ -377,9 +369,7 @@ def _validate_field_access_expr(field_access_expr: FieldAccessExpr) -> None:
     if not isinstance(field_access_expr.field_name, str):
         _raise_validation_type_error("FieldAccessExpr.field_name must be a string.")
     if not field_access_expr.field_name.strip():
-        _raise_validation_value_error(
-            "FieldAccessExpr.field_name must be a non-empty string."
-        )
+        _raise_validation_value_error("FieldAccessExpr.field_name must be a non-empty string.")
 
 
 def _validate_unary_expr(unary_expr: UnaryExpr) -> None:
@@ -466,10 +456,7 @@ def validate_expression(expr: Expr) -> None:
             case _:
                 raise RlmValidationError(
                     code=RlmErrorCode.UNSUPPORTED_EXPRESSION_NODE,
-                    message=(
-                        "Unsupported expression node for validation: "
-                        f"{type(expr).__name__}"
-                    ),
+                    message=(f"Unsupported expression node for validation: {type(expr).__name__}"),
                 )
     except Exception as error:
         if isinstance(error, RlmRuntimeError):

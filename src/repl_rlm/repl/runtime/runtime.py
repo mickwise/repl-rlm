@@ -252,9 +252,7 @@ async def execute_program_from_prompt(
     - The prompt is injected as a normal binding so programs can reference it
       through the bindings environment.
     """
-    initial_bindings: Bindings = (
-        dict(extra_bindings) if extra_bindings is not None else {}
-    )
+    initial_bindings: Bindings = dict(extra_bindings) if extra_bindings is not None else {}
     initial_bindings[prompt_binding_name] = prompt
 
     runtime_state = create_runtime_state(

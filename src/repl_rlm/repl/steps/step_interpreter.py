@@ -183,9 +183,7 @@ async def _interpret_if_step(
     - Branch execution is delegated to the step-sequence interpreter.
     """
     condition_value: RuntimeValue = interpret_expression(step.condition, runtime_state)
-    selected_steps: Tuple[Step, ...] = (
-        step.then_steps if condition_value else step.else_steps
-    )
+    selected_steps: Tuple[Step, ...] = step.then_steps if condition_value else step.else_steps
     return await interpret_step_tuple(selected_steps, runtime_state)
 
 
@@ -227,9 +225,7 @@ async def _interpret_for_each_step(
     - Loop-body steps may refer to the current element via `Ref` using that
       binding name.
     """
-    iterable_value: RuntimeValue = interpret_expression(
-        step.iterable_expr, runtime_state
-    )
+    iterable_value: RuntimeValue = interpret_expression(step.iterable_expr, runtime_state)
 
     try:
         iterator = iter(iterable_value)
@@ -408,8 +404,7 @@ async def _interpret_recursive_call_step(
         raise RlmExecutionError(
             code=RlmErrorCode.REGISTRY_LOOKUP_ERROR,
             message=(
-                "Recursive child-program generator not found in registry: "
-                f"{step.baml_func_name}"
+                f"Recursive child-program generator not found in registry: {step.baml_func_name}"
             ),
             cause=error,
         ) from error
@@ -428,10 +423,7 @@ async def _interpret_recursive_call_step(
     except TypeError as error:
         raise RlmExecutionError(
             code=RlmErrorCode.INVALID_CALL_OPERATION,
-            message=(
-                "Invalid recursive child-program call arguments for: "
-                f"{step.baml_func_name}"
-            ),
+            message=(f"Invalid recursive child-program call arguments for: {step.baml_func_name}"),
             cause=error,
         ) from error
 
@@ -442,8 +434,7 @@ async def _interpret_recursive_call_step(
         raise RlmExecutionError(
             code=RlmErrorCode.INVALID_CALL_OPERATION,
             message=(
-                "Recursive child-program generator must return a Program: "
-                f"{step.baml_func_name}"
+                f"Recursive child-program generator must return a Program: {step.baml_func_name}"
             ),
         )
 
@@ -494,9 +485,7 @@ def _interpret_assignment_step(
     - Assignment mutates `runtime_state.bindings` and does not itself return a
       value into surrounding execution.
     """
-    interpreted_value: RuntimeValue = interpret_expression(
-        step.value_expr, runtime_state
-    )
+    interpreted_value: RuntimeValue = interpret_expression(step.value_expr, runtime_state)
     runtime_state.bindings[step.binding_target] = interpreted_value
     return StepExecutionResult.normal()
 
@@ -618,9 +607,7 @@ async def _interpret_join_step(
         ) from error
 
     if step.binding_target:
-        runtime_state.bindings[step.binding_target] = [
-            result.return_value for result in results
-        ]
+        runtime_state.bindings[step.binding_target] = [result.return_value for result in results]
 
     return StepExecutionResult.normal()
 

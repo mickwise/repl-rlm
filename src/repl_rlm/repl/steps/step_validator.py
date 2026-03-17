@@ -448,9 +448,7 @@ def _validate_join_step(step: JoinStep) -> None:
         _raise_validation_type_error("JoinStep.tasks_ref must be a tuple.")
     for task_ref in step.tasks_ref:
         if not isinstance(task_ref, TaskRef):
-            _raise_validation_type_error(
-                "JoinStep.tasks_ref must contain only TaskRef nodes."
-            )
+            _raise_validation_type_error("JoinStep.tasks_ref must contain only TaskRef nodes.")
         validate_expression(task_ref)
     if step.binding_target:
         _validate_non_empty_string(step.binding_target, "JoinStep.binding_target")
@@ -509,9 +507,7 @@ def validate_step(step: Step) -> None:
             case _:
                 raise RlmValidationError(
                     code=RlmErrorCode.UNSUPPORTED_STEP_NODE,
-                    message=(
-                        f"Unsupported step node for validation: {type(step).__name__}"
-                    ),
+                    message=(f"Unsupported step node for validation: {type(step).__name__}"),
                 )
     except Exception as error:
         if isinstance(error, RlmRuntimeError):

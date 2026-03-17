@@ -436,11 +436,7 @@ def translate_exception(error: Exception, phase: ErrorPhase) -> RlmRuntimeError:
                 message=message,
                 cause=error,
             )
-        if (
-            ">" in lowered
-            or "<" in lowered
-            or "not supported between instances" in lowered
-        ):
+        if ">" in lowered or "<" in lowered or "not supported between instances" in lowered:
             return RlmExecutionError(
                 code=RlmErrorCode.INVALID_COMPARISON_OPERATION,
                 message=message,

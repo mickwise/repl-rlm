@@ -35,6 +35,7 @@ from baml_client.types import RollPlan
 
 RANDOM_SEED = 42
 
+
 def parse_message_to_roll_plan(message: str, context: str | None = None) -> RollPlan:
     """
     Parse a natural-language roll message into a RollPlan by calling the BAML tool.
