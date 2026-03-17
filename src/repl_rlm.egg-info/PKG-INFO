@@ -7,9 +7,8 @@ License: MIT
 Requires-Python: >=3.14
 Description-Content-Type: text/markdown
 Requires-Dist: baml-py>=0.220.0
-Requires-Dist: pytest>=9.0.2
 Provides-Extra: dev
-Requires-Dist: pytest>=8.4.0; extra == "dev"
+Requires-Dist: pytest>=9.0.2; extra == "dev"
 Requires-Dist: pytest-asyncio>=1.1.0; extra == "dev"
 Requires-Dist: ruff>=0.12.0; extra == "dev"
 

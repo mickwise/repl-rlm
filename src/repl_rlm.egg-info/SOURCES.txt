@@ -6,7 +6,6 @@ src/repl_rlm.egg-info/SOURCES.txt
 src/repl_rlm.egg-info/dependency_links.txt
 src/repl_rlm.egg-info/requires.txt
 src/repl_rlm.egg-info/top_level.txt
-src/repl_rlm/adapters/vllm/backend.py
 src/repl_rlm/baml_client/__init__.py
 src/repl_rlm/baml_client/async_client.py
 src/repl_rlm/baml_client/config.py
