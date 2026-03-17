@@ -10,11 +10,11 @@ Key behaviors
 - Defines the `AtomicType` alias for primitive literal values allowed directly
   in expression nodes.
 - Defines the `Expr` sum-type alias over all concrete expression node classes.
-- Defines enum types for comparison, unary, and logical operators so operator
-  syntax is restricted to a known supported set.
+- Defines enum types for comparison, algebraic, unary, and logical operators
+  so operator syntax is restricted to a known supported set.
 - Defines immutable dataclass nodes for literals, references, structured
-  objects, lists, binary comparisons, logical expressions, and unary
-  expressions.
+  objects, lists, binary comparisons, algebraic expressions, field-access
+  expressions, logical expressions, and unary expressions.
 - Defines both binding references (`Ref`) and task-registry references
   (`TaskRef`) as first-class expression nodes.
 - Does not perform evaluation, validation, name resolution, mutation, or any
@@ -49,7 +49,7 @@ from typing import Mapping, Tuple, TypeAlias
 AtomicType: TypeAlias = int | float | str | bool | None
 Expr: TypeAlias = (
     "Literal | Ref | TaskRef | ObjectExpr | ListExpr | ComparisonExpr | "
-    "LogicalExpr | UnaryExpr"
+    "AlgebraicExpr | FieldAccessExpr | LogicalExpr | UnaryExpr"
 )
 
 
@@ -96,6 +96,45 @@ class ComparisonOperator(str, Enum):
     LESS_THAN_OR_EQUAL = "<="
     LESS_THAN = "<"
     NOT_EQUAL = "!="
+
+
+class AlgebraicOperator(str, Enum):
+    """
+    Purpose
+    -------
+    Enumerate the legal algebraic operators for algebraic expressions. This
+    enum exists to constrain arithmetic syntax to a known supported set.
+
+    Key behaviors
+    -------------
+    - Provides stable symbolic values for binary algebraic operations.
+    - Prevents arbitrary free-form operator strings from appearing in the AST.
+
+    Parameters
+    ----------
+    None
+
+    Attributes
+    ----------
+    ADD : AlgebraicOperator
+        Addition operator.
+    SUBTRACT : AlgebraicOperator
+        Subtraction operator.
+    MULTIPLY : AlgebraicOperator
+        Multiplication operator.
+    DIVIDE : AlgebraicOperator
+        Division operator.
+
+    Notes
+    -----
+    - Enum members inherit from `str` for convenient serialization and display.
+    - Downstream evaluation defines operand compatibility and runtime semantics.
+    """
+
+    ADD = "+"
+    SUBTRACT = "-"
+    MULTIPLY = "*"
+    DIVIDE = "/"
 
 
 class UnaryOperator(str, Enum):
@@ -374,6 +413,93 @@ class ComparisonExpr:
     lhs_expr: Expr
     rhs_expr: Expr
     operator: ComparisonOperator
+
+
+@dataclass(frozen=True)
+class AlgebraicExpr:
+    """
+    Purpose
+    -------
+    Represent a binary algebraic expression in the DSL. This node exists to
+    combine two operand expressions using an algebraic operator.
+
+    Key behaviors
+    -------------
+    - Stores left-hand and right-hand operand expressions.
+    - Stores the algebraic operator that determines the runtime operation
+      performed.
+
+    Parameters
+    ----------
+    lhs_expr : Expr
+        Left-hand operand expression.
+    rhs_expr : Expr
+        Right-hand operand expression.
+    operator : AlgebraicOperator
+        Algebraic operator to apply to the evaluated operands.
+
+    Attributes
+    ----------
+    lhs_expr : Expr
+        Left-hand operand expression.
+    rhs_expr : Expr
+        Right-hand operand expression.
+    operator : AlgebraicOperator
+        Algebraic operator to apply to the evaluated operands.
+
+    Notes
+    -----
+    - This node is structural only; operand evaluation and operator semantics
+      are handled downstream.
+    - Expression nesting represents grouping and precedence; this node does not
+      model parentheses directly.
+    """
+
+    lhs_expr: Expr
+    rhs_expr: Expr
+    operator: AlgebraicOperator
+
+
+@dataclass(frozen=True)
+class FieldAccessExpr:
+    """
+    Purpose
+    -------
+    Represent field extraction from a structured runtime value in the DSL.
+    This node exists to evaluate a base expression and look up one named field
+    from the resulting mapping-like value.
+
+    Key behaviors
+    -------------
+    - Stores the base expression whose runtime value should provide fields.
+    - Stores the field name that should be extracted from the evaluated base
+      value.
+
+    Parameters
+    ----------
+    base_expr : Expr
+        Base expression whose evaluated value should provide the requested
+        field.
+    field_name : str
+        Name of the field to extract from the evaluated base value.
+
+    Attributes
+    ----------
+    base_expr : Expr
+        Base expression whose evaluated value should provide the requested
+        field.
+    field_name : str
+        Name of the field to extract from the evaluated base value.
+
+    Notes
+    -----
+    - This node is structural only; base-value evaluation and field-lookup
+      semantics are handled downstream.
+    - This node models named field access rather than general indexing.
+    """
+
+    base_expr: Expr
+    field_name: str
 
 
 @dataclass(frozen=True)

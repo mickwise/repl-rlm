@@ -7,8 +7,9 @@ catch malformed AST data before runtime execution begins.
 
 Key behaviors
 -------------
-- Validates literal, object, list, comparison, logical, and unary
-  expression nodes, including both binding references and task references.
+- Validates literal, object, list, comparison, algebraic, field-access,
+  logical, and unary expression nodes, including both binding references and
+  task references.
 - Recursively validates nested expressions contained inside object and list
   expressions.
 - Checks that operator fields are instances of the correct enum types.
@@ -41,9 +42,12 @@ from repl_rlm.repl.errors import (
     translate_exception,
 )
 from repl_rlm.repl.expressions.expressions import (
+    AlgebraicExpr,
+    AlgebraicOperator,
     ComparisonExpr,
     ComparisonOperator,
     Expr,
+    FieldAccessExpr,
     ListExpr,
     Literal,
     LogicalExpr,
@@ -305,6 +309,79 @@ def _validate_logical_expr(logical_expr: LogicalExpr) -> None:
         _raise_validation_type_error("LogicalExpr.operator must be a LogicalOperator.")
 
 
+def _validate_algebraic_expr(algebraic_expr: AlgebraicExpr) -> None:
+    """
+    Validate that an algebraic expression has legal operands and operator type.
+
+    Parameters
+    ----------
+    algebraic_expr : AlgebraicExpr
+        Algebraic-expression AST node to validate.
+
+    Returns
+    -------
+    None
+        This function returns nothing when validation succeeds.
+
+    Raises
+    ------
+    TypeError
+        When the algebraic operator is not an AlgebraicOperator.
+
+    Notes
+    -----
+    - Operand expressions are recursively validated through the public
+      expression entry point.
+    - This function does not attempt to prove runtime numeric or host-language
+      compatibility between the evaluated operand values.
+    """
+    validate_expression(algebraic_expr.lhs_expr)
+    validate_expression(algebraic_expr.rhs_expr)
+
+    if not isinstance(algebraic_expr.operator, AlgebraicOperator):
+        _raise_validation_type_error(
+            "AlgebraicExpr.operator must be an AlgebraicOperator."
+        )
+
+
+def _validate_field_access_expr(field_access_expr: FieldAccessExpr) -> None:
+    """
+    Validate that a field-access expression has a legal base and field name.
+
+    Parameters
+    ----------
+    field_access_expr : FieldAccessExpr
+        Field-access AST node to validate.
+
+    Returns
+    -------
+    None
+        This function returns nothing when validation succeeds.
+
+    Raises
+    ------
+    TypeError
+        When the field name is not a string.
+    ValueError
+        When the field name is empty or only whitespace.
+
+    Notes
+    -----
+    - Base-expression validation is delegated recursively through the public
+      expression entry point.
+    - This function does not attempt to prove that the base expression will
+      evaluate to a field-accessible mapping at runtime.
+    """
+    validate_expression(field_access_expr.base_expr)
+
+    if not isinstance(field_access_expr.field_name, str):
+        _raise_validation_type_error("FieldAccessExpr.field_name must be a string.")
+    if not field_access_expr.field_name.strip():
+        _raise_validation_value_error(
+            "FieldAccessExpr.field_name must be a non-empty string."
+        )
+
+
 def _validate_unary_expr(unary_expr: UnaryExpr) -> None:
     """
     Validate that a unary expression has a legal operand and operator type.
@@ -378,6 +455,10 @@ def validate_expression(expr: Expr) -> None:
                 _validate_list_expr(expr)
             case ComparisonExpr():
                 _validate_comparison_expr(expr)
+            case AlgebraicExpr():
+                _validate_algebraic_expr(expr)
+            case FieldAccessExpr():
+                _validate_field_access_expr(expr)
             case LogicalExpr():
                 _validate_logical_expr(expr)
             case UnaryExpr():

@@ -159,3 +159,69 @@ def test_translate_exception_maps_not_iterable_type_errors() -> None:
 
     assert translated.code is RlmErrorCode.INVALID_ITERATION_OPERATION
     assert translated.cause is error
+
+
+def test_translate_exception_maps_algebraic_type_errors() -> None:
+    """
+    Translate algebraic type errors into invalid-algebraic-operation failures.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when algebraic type errors map to the
+        expected native code.
+
+    Raises
+    ------
+    AssertionError
+        If the translated execution error does not carry the algebraic
+        operation code.
+
+    Notes
+    -----
+    - Algebraic expressions rely on translation for incompatible runtime
+      operand types.
+    """
+    error = TypeError("unsupported operand type(s) for -: 'dict' and 'str'")
+
+    translated = translate_exception(error, ErrorPhase.EXECUTION)
+
+    assert translated.code is RlmErrorCode.INVALID_ALGEBRAIC_OPERATION
+    assert translated.cause is error
+
+
+def test_translate_exception_maps_zero_division_errors() -> None:
+    """
+    Translate zero-division failures into the dedicated division-by-zero code.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when zero-division failures map to the
+        expected native code.
+
+    Raises
+    ------
+    AssertionError
+        If the translated execution error does not carry the division-by-zero
+        code.
+
+    Notes
+    -----
+    - Division by zero is a dedicated native execution category in the
+      expression layer.
+    """
+    error = ZeroDivisionError("division by zero")
+
+    translated = translate_exception(error, ErrorPhase.EXECUTION)
+
+    assert translated.code is RlmErrorCode.DIVISION_BY_ZERO
+    assert translated.cause is error

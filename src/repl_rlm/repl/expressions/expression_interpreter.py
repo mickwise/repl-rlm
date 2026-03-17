@@ -7,8 +7,8 @@ runtime loop and step interpreter.
 
 Key behaviors
 -------------
-- Evaluates literal, reference, object, list, comparison, logical, and unary
-  expression nodes.
+- Evaluates literal, reference, object, list, comparison, algebraic,
+  field-access, logical, and unary expression nodes.
 - Resolves named references against the supplied runtime bindings and task
   references against runtime task registry state.
 - Recursively evaluates nested expressions into concrete runtime values.
@@ -20,8 +20,9 @@ Conventions
 - Helper functions in this module are private and dispatch on concrete AST node
   classes.
 - Structural validation is expected to happen in a separate validator pass.
-- This module raises only unsupported-node and unsupported-operator errors plus
-  reference-lookup errors.
+- This module raises native execution errors for unsupported nodes, unsupported
+  operators, reference lookup failures, division by zero, and invalid
+  field-access operations.
 
 Downstream usage
 ----------------
@@ -32,6 +33,7 @@ they need to evaluate an AST expression node against the current
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Dict, List
 
 from repl_rlm.repl.errors import (
@@ -42,10 +44,13 @@ from repl_rlm.repl.errors import (
     translate_exception,
 )
 from repl_rlm.repl.expressions.expressions import (
+    AlgebraicExpr,
+    AlgebraicOperator,
     AtomicType,
     ComparisonExpr,
     ComparisonOperator,
     Expr,
+    FieldAccessExpr,
     ListExpr,
     Literal,
     LogicalExpr,
@@ -339,6 +344,131 @@ def _interpret_logical_expr(
             )
 
 
+def _interpret_algebraic_expr(
+    algebraic_expr: AlgebraicExpr,
+    runtime_state: RuntimeState,
+) -> RuntimeValue:
+    """
+    Interpret an algebraic expression into a runtime value.
+
+    Parameters
+    ----------
+    algebraic_expr : AlgebraicExpr
+        Algebraic-expression AST node containing two operand expressions and an
+        algebraic operator.
+    runtime_state : RuntimeState
+        Current runtime state used when evaluating operand expressions.
+
+    Returns
+    -------
+    RuntimeValue
+        Runtime value produced by applying the algebraic operator to the
+        evaluated operands.
+
+    Raises
+    ------
+    RlmExecutionError
+        When division is attempted with a zero divisor or the operator is
+        unsupported.
+
+    Notes
+    -----
+    - Operand values are recursively evaluated before the algebraic operation
+      is applied.
+    - Invalid host-language algebraic operations are allowed to propagate to
+      native translation, except for division by zero which is raised as an
+      explicit native execution error.
+    """
+    lhs: RuntimeValue = interpret_expression(
+        algebraic_expr.lhs_expr,
+        runtime_state,
+    )
+    rhs: RuntimeValue = interpret_expression(
+        algebraic_expr.rhs_expr,
+        runtime_state,
+    )
+    operator: AlgebraicOperator = algebraic_expr.operator
+
+    match operator:
+        case AlgebraicOperator.ADD:
+            return lhs + rhs
+        case AlgebraicOperator.SUBTRACT:
+            return lhs - rhs
+        case AlgebraicOperator.MULTIPLY:
+            return lhs * rhs
+        case AlgebraicOperator.DIVIDE:
+            try:
+                return lhs / rhs
+            except ZeroDivisionError as error:
+                raise RlmExecutionError(
+                    code=RlmErrorCode.DIVISION_BY_ZERO,
+                    message="Division by zero is not allowed.",
+                    cause=error,
+                ) from error
+        case _:
+            raise RlmExecutionError(
+                code=RlmErrorCode.UNSUPPORTED_OPERATOR,
+                message=f"Unsupported algebraic operator: {operator}",
+            )
+
+
+def _interpret_field_access_expr(
+    field_access_expr: FieldAccessExpr,
+    runtime_state: RuntimeState,
+) -> RuntimeValue:
+    """
+    Interpret a field-access expression into a runtime value.
+
+    Parameters
+    ----------
+    field_access_expr : FieldAccessExpr
+        Field-access AST node containing a base expression and field name.
+    runtime_state : RuntimeState
+        Current runtime state used when evaluating the base expression.
+
+    Returns
+    -------
+    RuntimeValue
+        Runtime value stored under the requested field name.
+
+    Raises
+    ------
+    RlmExecutionError
+        When the base expression is not field-accessible or the requested
+        field is missing.
+
+    Notes
+    -----
+    - Field access is intentionally limited to mapping-like runtime values.
+    - Missing-field and invalid-base failures are raised as explicit native
+      execution errors rather than relying on generic Python exception
+      translation.
+    """
+    base_value: RuntimeValue = interpret_expression(
+        field_access_expr.base_expr,
+        runtime_state,
+    )
+    field_name: str = field_access_expr.field_name
+
+    if not isinstance(base_value, Mapping):
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_FIELD_ACCESS,
+            message=(
+                "Field access base expression must evaluate to a mapping-like "
+                "value."
+            ),
+        )
+
+    try:
+        return base_value[field_name]
+    except KeyError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.MISSING_FIELD,
+            message=f"Field not found: {field_name}",
+            cause=error,
+        ) from error
+
+
 def _interpret_unary_expr(
     unary_expr: UnaryExpr,
     runtime_state: RuntimeState,
@@ -432,6 +562,10 @@ def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValu
                 return _interpret_list_expr(expr, runtime_state)
             case ComparisonExpr():
                 return _interpret_comparison_expr(expr, runtime_state)
+            case AlgebraicExpr():
+                return _interpret_algebraic_expr(expr, runtime_state)
+            case FieldAccessExpr():
+                return _interpret_field_access_expr(expr, runtime_state)
             case LogicalExpr():
                 return _interpret_logical_expr(expr, runtime_state)
             case UnaryExpr():

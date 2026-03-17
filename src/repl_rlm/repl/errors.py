@@ -118,9 +118,21 @@ class RlmErrorCode(str, Enum):
     INVALID_COMPARISON_OPERATION : RlmErrorCode
         Execution failed because a comparison operator was applied to
         incompatible runtime values.
+    INVALID_ALGEBRAIC_OPERATION : RlmErrorCode
+        Execution failed because an algebraic operator was applied to
+        incompatible runtime values.
+    DIVISION_BY_ZERO : RlmErrorCode
+        Execution failed because a division operation attempted to divide by
+        zero.
     INVALID_UNARY_OPERATION : RlmErrorCode
         Execution failed because a unary operator was applied to an invalid
         runtime value.
+    INVALID_FIELD_ACCESS : RlmErrorCode
+        Execution failed because field access was attempted on a non-mapping
+        runtime value.
+    MISSING_FIELD : RlmErrorCode
+        Execution failed because a requested field name was not present on a
+        mapping-like runtime value.
     INVALID_ITERATION_OPERATION : RlmErrorCode
         Execution failed because foreach iteration was attempted on a
         non-iterable runtime value.
@@ -158,7 +170,11 @@ class RlmErrorCode(str, Enum):
     UNBOUND_TASK_REFERENCE = "unbound_task_reference"
     REGISTRY_LOOKUP_ERROR = "registry_lookup_error"
     INVALID_COMPARISON_OPERATION = "invalid_comparison_operation"
+    INVALID_ALGEBRAIC_OPERATION = "invalid_algebraic_operation"
+    DIVISION_BY_ZERO = "division_by_zero"
     INVALID_UNARY_OPERATION = "invalid_unary_operation"
+    INVALID_FIELD_ACCESS = "invalid_field_access"
+    MISSING_FIELD = "missing_field"
     INVALID_ITERATION_OPERATION = "invalid_iteration_operation"
     INVALID_CALL_OPERATION = "invalid_call_operation"
     TASK_SPAWN_ERROR = "task_spawn_error"
@@ -390,10 +406,27 @@ def translate_exception(error: Exception, phase: ErrorPhase) -> RlmRuntimeError:
             cause=error,
         )
 
+    if isinstance(error, ZeroDivisionError):
+        return RlmExecutionError(
+            code=RlmErrorCode.DIVISION_BY_ZERO,
+            message=message or "Division by zero is not allowed.",
+            cause=error,
+        )
+
     if isinstance(error, TypeError):
         if "not iterable" in lowered:
             return RlmExecutionError(
                 code=RlmErrorCode.INVALID_ITERATION_OPERATION,
+                message=message,
+                cause=error,
+            )
+        if (
+            "unsupported operand type" in lowered
+            or "can only concatenate" in lowered
+            or "can't multiply sequence" in lowered
+        ):
+            return RlmExecutionError(
+                code=RlmErrorCode.INVALID_ALGEBRAIC_OPERATION,
                 message=message,
                 cause=error,
             )

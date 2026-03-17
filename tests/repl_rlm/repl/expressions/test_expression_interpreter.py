@@ -31,8 +31,11 @@ import pytest
 from repl_rlm.repl.errors import RlmErrorCode, RlmExecutionError
 from repl_rlm.repl.expressions.expression_interpreter import interpret_expression
 from repl_rlm.repl.expressions.expressions import (
+    AlgebraicExpr,
+    AlgebraicOperator,
     ComparisonExpr,
     ComparisonOperator,
+    FieldAccessExpr,
     ListExpr,
     Literal,
     LogicalExpr,
@@ -134,6 +137,50 @@ def test_interpret_expression_rejects_missing_references() -> None:
     assert excinfo.value.code is RlmErrorCode.UNBOUND_REFERENCE
 
 
+def test_interpret_expression_evaluates_algebraic_and_field_access_nodes() -> None:
+    """
+    Evaluate algebraic and field-access expressions against runtime bindings.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when algebraic and field-access expressions
+        evaluate to the expected runtime value.
+
+    Raises
+    ------
+    AssertionError
+        If the interpreted value does not match the expected result.
+
+    Notes
+    -----
+    - This covers the new expression-node dispatch paths without involving
+      step execution.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    runtime_state.bindings["result"] = {"total": 9, "count": 3}
+
+    expr = AlgebraicExpr(
+        lhs_expr=FieldAccessExpr(
+            base_expr=Ref(name="result"),
+            field_name="total",
+        ),
+        rhs_expr=FieldAccessExpr(
+            base_expr=Ref(name="result"),
+            field_name="count",
+        ),
+        operator=AlgebraicOperator.DIVIDE,
+    )
+
+    result = interpret_expression(expr, runtime_state)
+
+    assert result == 3
+
+
 @pytest.mark.asyncio
 async def test_interpret_expression_resolves_task_references() -> None:
     """
@@ -167,6 +214,115 @@ async def test_interpret_expression_resolves_task_references() -> None:
     await task
 
     assert result is task
+
+
+def test_interpret_expression_rejects_division_by_zero() -> None:
+    """
+    Raise a native division-by-zero error for zero divisors.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when zero-division attempts map to the
+        expected native execution error.
+
+    Raises
+    ------
+    AssertionError
+        If division by zero is not surfaced with the dedicated native code.
+
+    Notes
+    -----
+    - Division by zero must not leak as a raw Python exception.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    expr = AlgebraicExpr(
+        lhs_expr=Literal(value=1),
+        rhs_expr=Literal(value=0),
+        operator=AlgebraicOperator.DIVIDE,
+    )
+
+    with pytest.raises(RlmExecutionError) as excinfo:
+        interpret_expression(expr, runtime_state)
+
+    assert excinfo.value.code is RlmErrorCode.DIVISION_BY_ZERO
+
+
+def test_interpret_expression_rejects_invalid_field_access_bases() -> None:
+    """
+    Raise a native field-access error for non-mapping base values.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when invalid field-access bases map to the
+        expected native execution error.
+
+    Raises
+    ------
+    AssertionError
+        If invalid field-access bases are accepted or mapped to the wrong
+        code.
+
+    Notes
+    -----
+    - Field access is intentionally restricted to mapping-like runtime values.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    expr = FieldAccessExpr(
+        base_expr=Literal(value=1),
+        field_name="total",
+    )
+
+    with pytest.raises(RlmExecutionError) as excinfo:
+        interpret_expression(expr, runtime_state)
+
+    assert excinfo.value.code is RlmErrorCode.INVALID_FIELD_ACCESS
+
+
+def test_interpret_expression_rejects_missing_fields() -> None:
+    """
+    Raise a native missing-field error when a mapping lacks the field.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when missing field names map to the expected
+        native execution error.
+
+    Raises
+    ------
+    AssertionError
+        If missing fields are accepted or mapped to the wrong error code.
+
+    Notes
+    -----
+    - Missing-field failures are surfaced explicitly for downstream planner
+      feedback.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    runtime_state.bindings["result"] = {"total": 9}
+    expr = FieldAccessExpr(
+        base_expr=Ref(name="result"),
+        field_name="count",
+    )
+
+    with pytest.raises(RlmExecutionError) as excinfo:
+        interpret_expression(expr, runtime_state)
+
+    assert excinfo.value.code is RlmErrorCode.MISSING_FIELD
 
 
 def test_interpret_expression_rejects_unsupported_operators() -> None:

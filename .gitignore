@@ -1,0 +1,63 @@
+# =============================================================================
+# .gitignore
+#
+# Purpose
+#   Ignore local development, cache, test, and packaging artifacts that should
+#   not be committed to the repl-rlm repository.
+#
+# Conventions
+#   - Keep source, lockfiles, and generated code that may be intentionally
+#     committed visible by default.
+#   - Ignore only broadly safe local artifacts here.
+#
+# Notes
+#   - This file does not automatically untrack artifacts that are already in
+#     Git history or index state.
+# =============================================================================
+
+# Python bytecode and interpreter caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# Test and lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build and packaging artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+src/*.egg-info/
+pip-wheel-metadata/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+
+# Local environment files
+.env
+.env.*
+
+# Local runtime / benchmark scratch space
+artifacts/
+outputs/
+tmp/
+
+
+# Deprecated folder
+deprecated
+
+
+# BAML client
+*baml_client/

@@ -30,8 +30,11 @@ import pytest
 from repl_rlm.repl.errors import RlmErrorCode, RlmValidationError
 from repl_rlm.repl.expressions.expression_validator import validate_expression
 from repl_rlm.repl.expressions.expressions import (
+    AlgebraicExpr,
+    AlgebraicOperator,
     ComparisonExpr,
     ComparisonOperator,
+    FieldAccessExpr,
     ListExpr,
     Literal,
     LogicalExpr,
@@ -119,6 +122,50 @@ def test_validate_expression_rejects_blank_reference_names() -> None:
     assert excinfo.value.code is RlmErrorCode.VALIDATION_VALUE_ERROR
 
 
+def test_validate_expression_accepts_algebraic_and_field_access_nodes() -> None:
+    """
+    Accept nested algebraic and field-access expressions with valid structure.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when algebraic and field-access nodes
+        validate successfully.
+
+    Raises
+    ------
+    AssertionError
+        If valid algebraic or field-access nodes unexpectedly fail validation.
+
+    Notes
+    -----
+    - This stabilizes the new expression-node branches added to validator
+      dispatch.
+    """
+    expr = AlgebraicExpr(
+        lhs_expr=FieldAccessExpr(
+            base_expr=ObjectExpr(
+                fields={
+                    "total": Literal(value=5),
+                    "count": Ref(name="count"),
+                }
+            ),
+            field_name="total",
+        ),
+        rhs_expr=FieldAccessExpr(
+            base_expr=ObjectExpr(fields={"count": Ref(name="count")}),
+            field_name="count",
+        ),
+        operator=AlgebraicOperator.ADD,
+    )
+
+    validate_expression(expr)
+
+
 def test_validate_expression_rejects_invalid_operator_types() -> None:
     """
     Reject operator payloads that are not members of the expected enum type.
@@ -147,6 +194,76 @@ def test_validate_expression_rejects_invalid_operator_types() -> None:
         lhs_expr=Literal(value=1),
         rhs_expr=Literal(value=2),
         operator=cast(ComparisonOperator, "??"),
+    )
+
+    with pytest.raises(RlmValidationError) as excinfo:
+        validate_expression(expr)
+
+    assert excinfo.value.code is RlmErrorCode.VALIDATION_TYPE_ERROR
+
+
+def test_validate_expression_rejects_blank_field_access_names() -> None:
+    """
+    Reject field-access expressions whose field name is blank after trimming.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when blank field names raise the expected
+        validation error.
+
+    Raises
+    ------
+    AssertionError
+        If blank field names are accepted or map to the wrong error code.
+
+    Notes
+    -----
+    - Field-name validation is part of the stable DSL shape for field access.
+    """
+    expr = FieldAccessExpr(
+        base_expr=ObjectExpr(fields={"total": Literal(value=1)}),
+        field_name="   ",
+    )
+
+    with pytest.raises(RlmValidationError) as excinfo:
+        validate_expression(expr)
+
+    assert excinfo.value.code is RlmErrorCode.VALIDATION_VALUE_ERROR
+
+
+def test_validate_expression_rejects_invalid_algebraic_operator_types() -> None:
+    """
+    Reject algebraic operator payloads that are not enum members.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when malformed algebraic operators trigger
+        the expected validation error.
+
+    Raises
+    ------
+    AssertionError
+        If a malformed algebraic operator is accepted or mapped incorrectly.
+
+    Notes
+    -----
+    - This pins the new algebraic-expression validator branch to the same
+      structural guarantees as existing operator nodes.
+    """
+    expr = AlgebraicExpr(
+        lhs_expr=Literal(value=1),
+        rhs_expr=Literal(value=2),
+        operator=cast(AlgebraicOperator, "??"),
     )
 
     with pytest.raises(RlmValidationError) as excinfo:
