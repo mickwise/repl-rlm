@@ -133,6 +133,12 @@ class RlmErrorCode(str, Enum):
     MISSING_FIELD : RlmErrorCode
         Execution failed because a requested field name was not present on a
         mapping-like runtime value.
+    INVALID_LIST_INDEX : RlmErrorCode
+        Execution failed because list indexing was attempted on a non-list
+        runtime value or with an invalid index value.
+    LIST_INDEX_OUT_OF_RANGE : RlmErrorCode
+        Execution failed because a requested list index was outside the valid
+        bounds of the evaluated list value.
     INVALID_ITERATION_OPERATION : RlmErrorCode
         Execution failed because foreach iteration was attempted on a
         non-iterable runtime value.
@@ -175,6 +181,8 @@ class RlmErrorCode(str, Enum):
     INVALID_UNARY_OPERATION = "invalid_unary_operation"
     INVALID_FIELD_ACCESS = "invalid_field_access"
     MISSING_FIELD = "missing_field"
+    INVALID_LIST_INDEX = "invalid_list_index"
+    LIST_INDEX_OUT_OF_RANGE = "list_index_out_of_range"
     INVALID_ITERATION_OPERATION = "invalid_iteration_operation"
     INVALID_CALL_OPERATION = "invalid_call_operation"
     TASK_SPAWN_ERROR = "task_spawn_error"
@@ -381,6 +389,13 @@ def translate_exception(error: Exception, phase: ErrorPhase) -> RlmRuntimeError:
             cause=error,
         )
 
+    if isinstance(error, IndexError):
+        return RlmExecutionError(
+            code=RlmErrorCode.LIST_INDEX_OUT_OF_RANGE,
+            message=message or "List index out of range.",
+            cause=error,
+        )
+
     if isinstance(error, ValueError):
         if "unsupported expression node" in lowered:
             return RlmExecutionError(
@@ -417,6 +432,12 @@ def translate_exception(error: Exception, phase: ErrorPhase) -> RlmRuntimeError:
         if "not iterable" in lowered:
             return RlmExecutionError(
                 code=RlmErrorCode.INVALID_ITERATION_OPERATION,
+                message=message,
+                cause=error,
+            )
+        if "list indices must be integers" in lowered or "list index" in lowered:
+            return RlmExecutionError(
+                code=RlmErrorCode.INVALID_LIST_INDEX,
                 message=message,
                 cause=error,
             )

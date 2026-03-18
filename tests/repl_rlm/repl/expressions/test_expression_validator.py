@@ -36,6 +36,7 @@ from repl_rlm.repl.expressions.expressions import (
     ComparisonOperator,
     FieldAccessExpr,
     ListExpr,
+    ListIndexExpr,
     Literal,
     LogicalExpr,
     LogicalOperator,
@@ -161,6 +162,43 @@ def test_validate_expression_accepts_algebraic_and_field_access_nodes() -> None:
             field_name="count",
         ),
         operator=AlgebraicOperator.ADD,
+    )
+
+    validate_expression(expr)
+
+
+def test_validate_expression_accepts_nested_list_index_nodes() -> None:
+    """
+    Accept nested list-index expressions with structurally valid operands.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when nested list-index expressions validate
+        successfully.
+
+    Raises
+    ------
+    AssertionError
+        If valid list-index expressions unexpectedly fail validation.
+
+    Notes
+    -----
+    - This stabilizes the list-index branch added to validator dispatch.
+    """
+    expr = FieldAccessExpr(
+        base_expr=ListIndexExpr(
+            base_expr=FieldAccessExpr(
+                base_expr=Ref(name="roll_result"),
+                field_name="instances",
+            ),
+            index_expr=Literal(value=0),
+        ),
+        field_name="total",
     )
 
     validate_expression(expr)

@@ -225,3 +225,35 @@ def test_translate_exception_maps_zero_division_errors() -> None:
 
     assert translated.code is RlmErrorCode.DIVISION_BY_ZERO
     assert translated.cause is error
+
+
+def test_translate_exception_maps_index_errors() -> None:
+    """
+    Translate index errors into the dedicated list-index-out-of-range code.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when index errors map to the expected native
+        code.
+
+    Raises
+    ------
+    AssertionError
+        If translated index errors do not carry the dedicated list-index code.
+
+    Notes
+    -----
+    - This protects the fallback translation path when a raw IndexError leaks
+      out of lower-level execution code.
+    """
+    error = IndexError("list index out of range")
+
+    translated = translate_exception(error, ErrorPhase.EXECUTION)
+
+    assert translated.code is RlmErrorCode.LIST_INDEX_OUT_OF_RANGE
+    assert translated.cause is error

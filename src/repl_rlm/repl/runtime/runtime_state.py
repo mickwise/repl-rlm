@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from asyncio import Task
 from dataclasses import dataclass
-from typing import Callable, Dict, TypeAlias
+from typing import Callable, Dict, List, TypeAlias
 
 from repl_rlm.repl.errors import RlmErrorCode, RlmExecutionError
 from repl_rlm.repl.expressions.expressions import AtomicType
@@ -51,7 +51,7 @@ from repl_rlm.repl.runtime.config import RuntimeConfig
 from repl_rlm.repl.steps.steps import Program
 
 TaskHandle: TypeAlias = Task["StepExecutionResult"]
-RuntimeValue: TypeAlias = AtomicType | list["RuntimeValue"] | dict[str, "RuntimeValue"] | TaskHandle
+RuntimeValue: TypeAlias = AtomicType | List["RuntimeValue"] | Dict[str, "RuntimeValue"] | TaskHandle
 LlmResult: TypeAlias = RuntimeValue | Program
 Bindings: TypeAlias = Dict[str, RuntimeValue]
 ToolFunction: TypeAlias = Callable[..., RuntimeValue]

@@ -14,7 +14,8 @@ Key behaviors
   so operator syntax is restricted to a known supported set.
 - Defines immutable dataclass nodes for literals, references, structured
   objects, lists, binary comparisons, algebraic expressions, field-access
-  expressions, logical expressions, and unary expressions.
+  expressions, list-index expressions, logical expressions, and unary
+  expressions.
 - Defines both binding references (`Ref`) and task-registry references
   (`TaskRef`) as first-class expression nodes.
 - Does not perform evaluation, validation, name resolution, mutation, or any
@@ -49,7 +50,7 @@ from typing import Mapping, Tuple, TypeAlias
 AtomicType: TypeAlias = int | float | str | bool | None
 Expr: TypeAlias = (
     "Literal | Ref | TaskRef | ObjectExpr | ListExpr | ComparisonExpr | "
-    "AlgebraicExpr | FieldAccessExpr | LogicalExpr | UnaryExpr"
+    "AlgebraicExpr | FieldAccessExpr | ListIndexExpr | LogicalExpr | UnaryExpr"
 )
 
 
@@ -500,6 +501,51 @@ class FieldAccessExpr:
 
     base_expr: Expr
     field_name: str
+
+
+@dataclass(frozen=True)
+class ListIndexExpr:
+    """
+    Purpose
+    -------
+    Represent list indexing against a structured runtime value in the DSL.
+    This node exists to evaluate a base expression and extract one element
+    from the resulting list-like runtime value using an index expression.
+
+    Key behaviors
+    -------------
+    - Stores the base expression whose runtime value should provide indexable
+      list elements.
+    - Stores the index expression that should evaluate to the requested
+      element position.
+
+    Parameters
+    ----------
+    base_expr : Expr
+        Base expression whose evaluated value should provide the requested
+        list element.
+    index_expr : Expr
+        Expression whose evaluated value should select the requested list
+        position.
+
+    Attributes
+    ----------
+    base_expr : Expr
+        Base expression whose evaluated value should provide the requested
+        list element.
+    index_expr : Expr
+        Expression whose evaluated value should select the requested list
+        position.
+
+    Notes
+    -----
+    - This node is structural only; base-value evaluation and index-lookup
+      semantics are handled downstream.
+    - This node models list indexing rather than named field access.
+    """
+
+    base_expr: Expr
+    index_expr: Expr
 
 
 @dataclass(frozen=True)

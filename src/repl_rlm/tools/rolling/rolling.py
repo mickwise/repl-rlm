@@ -42,7 +42,7 @@ import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, TypeAlias, Tuple
+from typing import Any, Dict, List, Tuple, TypeAlias
 
 RANDOM_SEED = 42
 
@@ -143,7 +143,7 @@ class RollPlan:
 
     Parameters
     ----------
-    dice : tuple[DiceTerm, ...]
+    dice : Tuple[DiceTerm, ...]
         Ordered dice terms that make up the plan.
     modifier : int
         Modifier applied once per repeated instance.
@@ -156,7 +156,7 @@ class RollPlan:
 
     Attributes
     ----------
-    dice : tuple[DiceTerm, ...]
+    dice : Tuple[DiceTerm, ...]
         Ordered dice terms that make up the plan.
     modifier : int
         Modifier applied once per repeated instance.
@@ -405,14 +405,14 @@ def _execute_roll_plan(plan: RollPlan, rng: random.Random) -> Dict[str, Any]:
 
     Returns
     -------
-    dict[str, Any]
+    Dict[str, Any]
         Structured execution result with keys:
         - label: str | None
         - mode: str
         - modifier: int
         - repeat: int
-        - instances: list[dict[str, Any]] where each instance has:
-            - terms: list[dict[str, Any]]
+        - instances: List[Dict[str, Any]] where each instance has:
+            - terms: List[Dict[str, Any]]
             - total_before_modifier: int
             - total: int
 
@@ -510,7 +510,7 @@ def roll(
 
     Returns
     -------
-    dict[str, Any]
+    Dict[str, Any]
         Structured roll execution result (see `execute_roll_plan`).
 
     Raises
@@ -571,7 +571,7 @@ async def roll_async(
 
     Returns
     -------
-    dict[str, Any]
+    Dict[str, Any]
         Structured roll execution result (see `execute_roll_plan`).
 
     Raises
@@ -614,12 +614,12 @@ def _roll_term(count: int, sides: int, mode: str, rng: random.Random) -> Dict[st
 
     Returns
     -------
-    dict[str, Any]
+    Dict[str, Any]
         Per-term result with keys:
         - count: int
         - sides: int
-        - rolls: list[int] (kept rolls)
-        - raw_rolls: list[int] | None (only for d20 adv/dis)
+        - rolls: List[int] (kept rolls)
+        - raw_rolls: List[int] | None (only for d20 adv/dis)
         - sum: int
 
     Raises

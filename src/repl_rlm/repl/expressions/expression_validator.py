@@ -8,8 +8,8 @@ catch malformed AST data before runtime execution begins.
 Key behaviors
 -------------
 - Validates literal, object, list, comparison, algebraic, field-access,
-  logical, and unary expression nodes, including both binding references and
-  task references.
+  list-index, logical, and unary expression nodes, including both binding
+  references and task references.
 - Recursively validates nested expressions contained inside object and list
   expressions.
 - Checks that operator fields are instances of the correct enum types.
@@ -49,6 +49,7 @@ from repl_rlm.repl.expressions.expressions import (
     Expr,
     FieldAccessExpr,
     ListExpr,
+    ListIndexExpr,
     Literal,
     LogicalExpr,
     LogicalOperator,
@@ -372,6 +373,38 @@ def _validate_field_access_expr(field_access_expr: FieldAccessExpr) -> None:
         _raise_validation_value_error("FieldAccessExpr.field_name must be a non-empty string.")
 
 
+def _validate_list_index_expr(list_index_expr: ListIndexExpr) -> None:
+    """
+    Validate that a list-index expression has legal base and index expressions.
+
+    Parameters
+    ----------
+    list_index_expr : ListIndexExpr
+        List-index AST node to validate.
+
+    Returns
+    -------
+    None
+        This function returns nothing when validation succeeds.
+
+    Raises
+    ------
+    None
+        Structural validation delegates all nested checks through the public
+        expression entry point.
+
+    Notes
+    -----
+    - Base-expression and index-expression validation are both delegated
+      recursively through the public expression entry point.
+    - This function does not attempt to prove that the base expression will
+      evaluate to a list or that the index expression will evaluate to an int
+      at runtime.
+    """
+    validate_expression(list_index_expr.base_expr)
+    validate_expression(list_index_expr.index_expr)
+
+
 def _validate_unary_expr(unary_expr: UnaryExpr) -> None:
     """
     Validate that a unary expression has a legal operand and operator type.
@@ -449,6 +482,8 @@ def validate_expression(expr: Expr) -> None:
                 _validate_algebraic_expr(expr)
             case FieldAccessExpr():
                 _validate_field_access_expr(expr)
+            case ListIndexExpr():
+                _validate_list_index_expr(expr)
             case LogicalExpr():
                 _validate_logical_expr(expr)
             case UnaryExpr():

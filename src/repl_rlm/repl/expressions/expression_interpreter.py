@@ -8,7 +8,7 @@ runtime loop and step interpreter.
 Key behaviors
 -------------
 - Evaluates literal, reference, object, list, comparison, algebraic,
-  field-access, logical, and unary expression nodes.
+  field-access, list-index, logical, and unary expression nodes.
 - Resolves named references against the supplied runtime bindings and task
   references against runtime task registry state.
 - Recursively evaluates nested expressions into concrete runtime values.
@@ -21,8 +21,8 @@ Conventions
   classes.
 - Structural validation is expected to happen in a separate validator pass.
 - This module raises native execution errors for unsupported nodes, unsupported
-  operators, reference lookup failures, division by zero, and invalid
-  field-access operations.
+  operators, reference lookup failures, division by zero, invalid
+  field-access operations, and invalid list-index operations.
 
 Downstream usage
 ----------------
@@ -52,6 +52,7 @@ from repl_rlm.repl.expressions.expressions import (
     Expr,
     FieldAccessExpr,
     ListExpr,
+    ListIndexExpr,
     Literal,
     LogicalExpr,
     LogicalOperator,
@@ -180,7 +181,7 @@ def _interpret_object_expr(
 
     Returns
     -------
-    dict[str, RuntimeValue]
+    Dict[str, RuntimeValue]
         Dictionary mapping field names to evaluated runtime values.
 
     Raises
@@ -216,7 +217,7 @@ def _interpret_list_expr(
 
     Returns
     -------
-    list[RuntimeValue]
+    List[RuntimeValue]
         List of evaluated runtime values in AST order.
 
     Raises
@@ -466,6 +467,76 @@ def _interpret_field_access_expr(
         ) from error
 
 
+def _interpret_list_index_expr(
+    list_index_expr: ListIndexExpr,
+    runtime_state: RuntimeState,
+) -> RuntimeValue:
+    """
+    Interpret a list-index expression into a runtime value.
+
+    Parameters
+    ----------
+    list_index_expr : ListIndexExpr
+        List-index AST node containing a base expression and index expression.
+    runtime_state : RuntimeState
+        Current runtime state used when evaluating the base and index
+        expressions.
+
+    Returns
+    -------
+    RuntimeValue
+        Runtime value stored at the requested list position.
+
+    Raises
+    ------
+    RlmExecutionError
+        When the base expression is not a list, the index is not a non-bool
+        integer, the index is negative, or the index is out of range.
+
+    Notes
+    -----
+    - List indexing is intentionally limited to concrete runtime lists.
+    - Invalid-base, invalid-index, and out-of-range failures are raised as
+      explicit native execution errors rather than relying on generic Python
+      exception translation.
+    """
+    base_value: RuntimeValue = interpret_expression(
+        list_index_expr.base_expr,
+        runtime_state,
+    )
+    index_value: RuntimeValue = interpret_expression(
+        list_index_expr.index_expr,
+        runtime_state,
+    )
+
+    if not isinstance(base_value, list):
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_LIST_INDEX,
+            message="List index base expression must evaluate to a list value.",
+        )
+
+    if isinstance(index_value, bool) or not isinstance(index_value, int):
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_LIST_INDEX,
+            message="List index expression must evaluate to a non-bool integer.",
+        )
+
+    if index_value < 0:
+        raise RlmExecutionError(
+            code=RlmErrorCode.INVALID_LIST_INDEX,
+            message="List index expression must evaluate to a non-negative integer.",
+        )
+
+    try:
+        return base_value[index_value]
+    except IndexError as error:
+        raise RlmExecutionError(
+            code=RlmErrorCode.LIST_INDEX_OUT_OF_RANGE,
+            message=f"List index out of range: {index_value}",
+            cause=error,
+        ) from error
+
+
 def _interpret_unary_expr(
     unary_expr: UnaryExpr,
     runtime_state: RuntimeState,
@@ -563,6 +634,8 @@ def interpret_expression(expr: Expr, runtime_state: RuntimeState) -> RuntimeValu
                 return _interpret_algebraic_expr(expr, runtime_state)
             case FieldAccessExpr():
                 return _interpret_field_access_expr(expr, runtime_state)
+            case ListIndexExpr():
+                return _interpret_list_index_expr(expr, runtime_state)
             case LogicalExpr():
                 return _interpret_logical_expr(expr, runtime_state)
             case UnaryExpr():

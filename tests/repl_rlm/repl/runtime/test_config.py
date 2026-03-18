@@ -20,6 +20,8 @@ CI runs this module to catch regressions in the recursion-budget policy surface
 used by runtime-state creation and recursive calls.
 """
 
+from typing import Dict
+
 import pytest
 
 from repl_rlm.repl.runtime.config import RuntimeConfig
@@ -33,7 +35,7 @@ from repl_rlm.repl.runtime.config import RuntimeConfig
     ],
 )
 def test_runtime_config_rejects_negative_limits(
-    kwargs: dict[str, int],
+    kwargs: Dict[str, int],
     expected_message: str,
 ) -> None:
     """
@@ -41,7 +43,7 @@ def test_runtime_config_rejects_negative_limits(
 
     Parameters
     ----------
-    kwargs : dict[str, int]
+    kwargs : Dict[str, int]
         Keyword arguments applied to the runtime configuration constructor.
     expected_message : str
         Substring expected to appear in the raised error message.

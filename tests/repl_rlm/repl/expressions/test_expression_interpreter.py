@@ -37,6 +37,7 @@ from repl_rlm.repl.expressions.expressions import (
     ComparisonOperator,
     FieldAccessExpr,
     ListExpr,
+    ListIndexExpr,
     Literal,
     LogicalExpr,
     LogicalOperator,
@@ -181,6 +182,54 @@ def test_interpret_expression_evaluates_algebraic_and_field_access_nodes() -> No
     assert result == 3
 
 
+def test_interpret_expression_evaluates_nested_list_index_nodes() -> None:
+    """
+    Evaluate nested list-index expressions against runtime bindings.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when nested list-index expressions resolve
+        the expected runtime value.
+
+    Raises
+    ------
+    AssertionError
+        If nested list indexing does not produce the expected result.
+
+    Notes
+    -----
+    - This covers the list-index interpreter branch using the real rolling-like
+      `instances[0].total` access pattern.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    runtime_state.bindings["roll_result"] = {
+        "instances": [
+            {"total": 7},
+            {"total": 11},
+        ]
+    }
+
+    expr = FieldAccessExpr(
+        base_expr=ListIndexExpr(
+            base_expr=FieldAccessExpr(
+                base_expr=Ref(name="roll_result"),
+                field_name="instances",
+            ),
+            index_expr=Literal(value=0),
+        ),
+        field_name="total",
+    )
+
+    result = interpret_expression(expr, runtime_state)
+
+    assert result == 7
+
+
 @pytest.mark.asyncio
 async def test_interpret_expression_resolves_task_references() -> None:
     """
@@ -323,6 +372,113 @@ def test_interpret_expression_rejects_missing_fields() -> None:
         interpret_expression(expr, runtime_state)
 
     assert excinfo.value.code is RlmErrorCode.MISSING_FIELD
+
+
+def test_interpret_expression_rejects_non_integer_list_indices() -> None:
+    """
+    Raise a native list-index error for non-integer index values.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when non-integer list indices map to the
+        expected native execution error.
+
+    Raises
+    ------
+    AssertionError
+        If invalid list-index values are accepted or mapped incorrectly.
+
+    Notes
+    -----
+    - Bool values are rejected separately by runtime code, so this test uses a
+      plain string index.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    expr = ListIndexExpr(
+        base_expr=ListExpr(values=(Literal(value=1), Literal(value=2))),
+        index_expr=Literal(value="0"),
+    )
+
+    with pytest.raises(RlmExecutionError) as excinfo:
+        interpret_expression(expr, runtime_state)
+
+    assert excinfo.value.code is RlmErrorCode.INVALID_LIST_INDEX
+
+
+def test_interpret_expression_rejects_negative_list_indices() -> None:
+    """
+    Raise a native list-index error for negative index values.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when negative list indices map to the
+        expected native execution error.
+
+    Raises
+    ------
+    AssertionError
+        If negative list indices are accepted or mapped incorrectly.
+
+    Notes
+    -----
+    - Negative Python indexing is intentionally unsupported by this DSL.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    expr = ListIndexExpr(
+        base_expr=ListExpr(values=(Literal(value=1), Literal(value=2))),
+        index_expr=Literal(value=-1),
+    )
+
+    with pytest.raises(RlmExecutionError) as excinfo:
+        interpret_expression(expr, runtime_state)
+
+    assert excinfo.value.code is RlmErrorCode.INVALID_LIST_INDEX
+
+
+def test_interpret_expression_rejects_out_of_range_list_indices() -> None:
+    """
+    Raise a native list-index error for out-of-range index values.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+        This test returns nothing when out-of-range list indices map to the
+        expected native execution error.
+
+    Raises
+    ------
+    AssertionError
+        If out-of-range list indices are accepted or mapped incorrectly.
+
+    Notes
+    -----
+    - Out-of-range access must surface a dedicated native error code rather
+      than a raw Python IndexError.
+    """
+    runtime_state = RuntimeState(tool_registry={}, llm_registry={})
+    expr = ListIndexExpr(
+        base_expr=ListExpr(values=(Literal(value=1), Literal(value=2))),
+        index_expr=Literal(value=3),
+    )
+
+    with pytest.raises(RlmExecutionError) as excinfo:
+        interpret_expression(expr, runtime_state)
+
+    assert excinfo.value.code is RlmErrorCode.LIST_INDEX_OUT_OF_RANGE
 
 
 def test_interpret_expression_rejects_unsupported_operators() -> None:

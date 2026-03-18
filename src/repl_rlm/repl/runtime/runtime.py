@@ -78,7 +78,7 @@ class ProgramExecutionResult:
         Returned runtime value, if the program produced one.
     bindings : Mapping[str, RuntimeValue]
         Snapshot of runtime bindings after execution completes.
-    active_task_names : tuple[str, ...]
+    active_task_names : Tuple[str, ...]
         Names of task handles still registered after execution completes.
 
     Attributes
@@ -89,7 +89,7 @@ class ProgramExecutionResult:
         Returned runtime value, if the program produced one.
     bindings : Mapping[str, RuntimeValue]
         Snapshot of runtime bindings after execution completes.
-    active_task_names : tuple[str, ...]
+    active_task_names : Tuple[str, ...]
         Names of task handles still registered after execution completes.
 
     Notes

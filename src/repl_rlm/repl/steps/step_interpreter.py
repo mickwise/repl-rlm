@@ -691,7 +691,7 @@ async def interpret_step_tuple(
 
     Parameters
     ----------
-    steps : tuple[Step, ...]
+    steps : Tuple[Step, ...]
         Ordered tuple of step AST nodes to execute.
     runtime_state : RuntimeState
         Current runtime state used throughout sequence execution.
