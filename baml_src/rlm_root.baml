@@ -296,6 +296,8 @@ class AttachmentInput {
   /// -----
   /// The planner may use attachment metadata to decide whether to call
   /// ingestion or parsing tools rather than reading raw file bytes directly.
+  /// Attachments are environment/resource descriptors, not implicit prompt
+  /// payload that should be treated as already inlined content.
 
   attachment_name string @description("Original filename or attachment label")
   mime_type string? @description("Attachment MIME type if known")
@@ -721,6 +723,8 @@ class RootRlmRequest {
   /// Notes
   /// -----
   /// Host code is responsible for keeping this request compact and relevant.
+  /// `attachments` should be used for resource metadata or host-visible handles,
+  /// not as an instruction to stuff attachment contents into planner prompt text.
 
   user_text string? @description("Raw user task text for the current session or turn")
   attachments AttachmentInput[] @description("Task-relevant attachment metadata and references")
@@ -835,6 +839,8 @@ function PlanRlmRootTurn(
     other runtime surface justified by the request context.
     4. Do not invent attachment contents, tool results, binding values, or runtime
     observations that are not present in the request.
+    4a. Treat attachments as host-visible resource metadata or handles, not as
+    raw content already present in your prompt window.
     5. Prefer simple sequential programs unless concurrency is clearly beneficial.
     6. Use recursive child calls only for narrower scoped subproblems and only
     when decomposition is clearly justified.

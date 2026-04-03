@@ -61,3 +61,6 @@ deprecated
 
 # BAML client
 *baml_client/
+
+# UV
+.uv-cache

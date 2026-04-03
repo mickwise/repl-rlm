@@ -1,6 +1,7 @@
 baml-py>=0.220.0
+jupyter>=1.1.1
+pyarrow>=23.0.1
+pydantic>=2.0.0
 
 [dev]
-pytest>=9.0.2
 pytest-asyncio>=1.1.0
-ruff>=0.12.0

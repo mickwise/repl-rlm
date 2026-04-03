@@ -7,10 +7,11 @@ License: MIT
 Requires-Python: >=3.14
 Description-Content-Type: text/markdown
 Requires-Dist: baml-py>=0.220.0
+Requires-Dist: jupyter>=1.1.1
+Requires-Dist: pyarrow>=23.0.1
+Requires-Dist: pydantic>=2.0.0
 Provides-Extra: dev
-Requires-Dist: pytest>=9.0.2; extra == "dev"
 Requires-Dist: pytest-asyncio>=1.1.0; extra == "dev"
-Requires-Dist: ruff>=0.12.0; extra == "dev"
 
 # repl-rlm
 

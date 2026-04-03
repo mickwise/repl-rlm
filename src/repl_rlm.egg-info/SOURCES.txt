@@ -34,6 +34,3 @@ src/repl_rlm/repl/steps/__init__.py
 src/repl_rlm/repl/steps/step_interpreter.py
 src/repl_rlm/repl/steps/step_validator.py
 src/repl_rlm/repl/steps/steps.py
-src/repl_rlm/tools/__init__.py
-src/repl_rlm/tools/rolling/__init__.py
-src/repl_rlm/tools/rolling/rolling.py
